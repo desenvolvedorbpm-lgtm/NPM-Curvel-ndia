@@ -1,5 +1,6 @@
 import { doc, setDoc, onSnapshot, disableNetwork } from "firebase/firestore";
 import { db } from "./firebase";
+import { getItemIDB, setItemIDB } from "./idbService";
 import {
   UnidadeTenant,
   PostoServico,
@@ -21,11 +22,26 @@ export interface AppDatabaseState {
   usuarios: UsuarioAuth[];
 }
 
-// In-memory serialized cache to prevent feedback loops
+// In-memory serialized cache to prevent unnecessary writes
 const lastCache: Record<string, string> = {};
 const writeTimers: Record<string, ReturnType<typeof setTimeout>> = {};
 
 let isQuotaExceeded = false;
+
+function getLocalTimestamp(key: string): number {
+  try {
+    const val = localStorage.getItem(`pmmt_ts_${key}`);
+    return val ? parseInt(val, 10) : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+function setLocalTimestamp(key: string, ts: number): void {
+  try {
+    localStorage.setItem(`pmmt_ts_${key}`, ts.toString());
+  } catch (_) {}
+}
 
 // Check stored quota status on load
 try {
@@ -33,7 +49,6 @@ try {
     const stored = localStorage.getItem(QUOTA_KEY);
     if (stored) {
       const timestamp = parseInt(stored, 10);
-      // Reset after 12 hours (43,200,000 ms) to check if quota restored
       if (Date.now() - timestamp < 12 * 60 * 60 * 1000) {
         isQuotaExceeded = true;
         disableNetwork(db).catch(() => {});
@@ -56,7 +71,7 @@ function markQuotaExceeded() {
       disableNetwork(db).catch(() => {});
     } catch (_) {}
     console.warn(
-      "Firestore quota limit reached. Network sync disabled; system operating safely via local storage."
+      "Firestore quota limit reached. Network sync disabled; system operating safely via IndexedDB local storage."
     );
   }
 }
@@ -93,26 +108,67 @@ if (typeof window !== "undefined") {
 }
 
 /**
- * Save collection items to Firestore safely with debouncing and error handling.
- * Only writes to Firestore if the data actually changed compared to the last cached snapshot.
+ * Loads stale collection data from IndexedDB or LocalStorage instantly (stale-while-revalidate pattern).
+ */
+export async function loadStaleCollection<T>(
+  key: keyof AppDatabaseState,
+  fallback: T[]
+): Promise<T[]> {
+  try {
+    const idbData = await getItemIDB<T>(key);
+    if (idbData && idbData.items && idbData.items.length > 0) {
+      lastCache[key] = JSON.stringify(idbData.items);
+      setLocalTimestamp(key, idbData.updatedAt || Date.now());
+      return idbData.items;
+    }
+
+    // Fallback to localStorage if IDB is empty
+    if (typeof localStorage !== "undefined") {
+      const lsVal = localStorage.getItem(`pmmt_app_${key}`);
+      if (lsVal) {
+        const parsed = JSON.parse(lsVal);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          lastCache[key] = lsVal;
+          const ts = getLocalTimestamp(key) || Date.now();
+          // Seed IndexedDB
+          setItemIDB(key, parsed, ts).catch(() => {});
+          return parsed;
+        }
+      }
+    }
+  } catch (error) {
+    console.warn(`Error loading stale data for ${key}:`, error);
+  }
+
+  return fallback;
+}
+
+/**
+ * Save collection items to IndexedDB & LocalStorage instantly, and Firestore debounced.
  */
 export async function saveCollectionToFirestore<T>(
   key: keyof AppDatabaseState,
   data: T[]
 ): Promise<void> {
-  if (isQuotaExceeded) {
-    return;
-  }
-
   const serialized = JSON.stringify(data);
 
-  // If first run and cache is empty, seed lastCache to prevent immediate startup write burst
-  if (lastCache[key] === undefined) {
-    lastCache[key] = serialized;
+  if (lastCache[key] === serialized) {
     return;
   }
 
-  if (lastCache[key] === serialized) {
+  const now = Date.now();
+  lastCache[key] = serialized;
+  setLocalTimestamp(key, now);
+
+  // Instant local persistence to IndexedDB and LocalStorage
+  setItemIDB(key, data, now).catch(() => {});
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(`pmmt_app_${key}`, serialized);
+    }
+  } catch (_) {}
+
+  if (isQuotaExceeded) {
     return;
   }
 
@@ -121,16 +177,15 @@ export async function saveCollectionToFirestore<T>(
     clearTimeout(writeTimers[key]);
   }
 
-  // Debounce writes by 2000ms to minimize API calls
+  // Debounce cloud write by 1500ms
   writeTimers[key] = setTimeout(async () => {
     if (isQuotaExceeded) return;
 
     try {
-      lastCache[key] = serialized;
       const docRef = doc(db, COLLECTION_NAME, key);
       await setDoc(docRef, {
         items: data,
-        updatedAt: new Date().toISOString()
+        updatedAt: now
       });
     } catch (error: any) {
       if (
@@ -145,24 +200,31 @@ export async function saveCollectionToFirestore<T>(
         console.error(`Error saving ${key} to Firestore:`, error);
       }
     }
-  }, 2000);
+  }, 1500);
 }
 
 /**
- * Subscribe to real-time updates for a given collection from Firestore.
+ * Subscribe to real-time updates for a given collection from Firestore (revalidation step).
+ * Updates local IndexedDB/LocalStorage if remote data is strictly newer.
  */
 export function subscribeToCollection<T>(
   key: keyof AppDatabaseState,
   initialLocalItems: T[],
   onUpdate: (items: T[]) => void
 ): () => void {
+  // First, asynchronously populate from IndexedDB/LocalStorage if available
+  loadStaleCollection<T>(key, initialLocalItems).then((staleItems) => {
+    if (staleItems && staleItems.length > 0) {
+      onUpdate(staleItems);
+    }
+  });
+
   if (isQuotaExceeded) {
     return () => {};
   }
 
   const docRef = doc(db, COLLECTION_NAME, key);
 
-  // Seed lastCache with initial items if not set
   if (lastCache[key] === undefined && initialLocalItems) {
     lastCache[key] = JSON.stringify(initialLocalItems);
   }
@@ -177,12 +239,29 @@ export function subscribeToCollection<T>(
         if (docSnap.metadata.hasPendingWrites) {
           return;
         }
+
         if (docSnap.exists()) {
           const data = docSnap.data();
           if (data && Array.isArray(data.items)) {
-            const serializedRemote = JSON.stringify(data.items);
-            if (lastCache[key] !== serializedRemote) {
+            const remoteTs =
+              typeof data.updatedAt === "number"
+                ? data.updatedAt
+                : data.updatedAt
+                ? new Date(data.updatedAt).getTime()
+                : 0;
+            const localTs = getLocalTimestamp(key);
+
+            // Stale-While-Revalidate: Adopt remote items ONLY if remote is strictly newer
+            if (remoteTs > localTs) {
+              const serializedRemote = JSON.stringify(data.items);
               lastCache[key] = serializedRemote;
+              setLocalTimestamp(key, remoteTs);
+              setItemIDB(key, data.items as T[], remoteTs).catch(() => {});
+              try {
+                if (typeof localStorage !== "undefined") {
+                  localStorage.setItem(`pmmt_app_${key}`, serializedRemote);
+                }
+              } catch (_) {}
               onUpdate(data.items as T[]);
             }
           }
@@ -225,4 +304,6 @@ export function subscribeToCollection<T>(
     }
   };
 }
+
+
 

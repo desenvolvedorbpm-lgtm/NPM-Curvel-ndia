@@ -166,22 +166,22 @@ export default function App() {
 
   // Real-time Firestore Subscriptions
   React.useEffect(() => {
-    const unsubUnidades = subscribeToCollection("unidades", UNIDADES_INICIAIS, (items) => {
+    const unsubUnidades = subscribeToCollection("unidades", unidades, (items) => {
       setUnidades(items);
     });
-    const unsubPostos = subscribeToCollection("postos", POSTOS_INICIAIS, (items) => {
+    const unsubPostos = subscribeToCollection("postos", postos, (items) => {
       setPostos(items);
     });
-    const unsubMilitares = subscribeToCollection("militares", MILITARES_INICIAIS, (items) => {
+    const unsubMilitares = subscribeToCollection("militares", militares, (items) => {
       setMilitares(items);
     });
-    const unsubAfastamentos = subscribeToCollection("afastamentos", AFASTAMENTOS_INICIAIS, (items) => {
+    const unsubAfastamentos = subscribeToCollection("afastamentos", afastamentos, (items) => {
       setAfastamentos(items);
     });
-    const unsubEscalas = subscribeToCollection("escalas", ESCALA_INICIAL_04_A_10_AGOSTO, (items) => {
+    const unsubEscalas = subscribeToCollection("escalas", escalas, (items) => {
       setEscalas(items);
     });
-    const unsubUsuarios = subscribeToCollection("usuarios", getInitialUsuarios(MILITARES_INICIAIS), (items) => {
+    const unsubUsuarios = subscribeToCollection("usuarios", usuarios, (items) => {
       setUsuarios(items);
     });
 
