@@ -1,0 +1,6 @@
+{
+  "name": "Sistema de Escalas Diárias - NPM Curvelândia",
+  "description": "Sistema de gestão, projeção e automação de escalas diárias, semanais e mensais com arquitetura multi-tenant e motor de regras de descanso e senioridade.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
