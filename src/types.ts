@@ -99,6 +99,28 @@ export interface Afastamento {
   is_fatiguing: boolean; // false for Férias/Licenças (D+1 zero rest requirement), true for Cursos/Patrulha (mandatory 24h rest)
 }
 
+export type UserRole = "comandante" | "operador" | "admin" | "militar";
+
+export interface UsuarioAuth {
+  id: string; // e.g. "user-comandante", "user-operador", or "user-admin"
+  username: string; // RGPMMT (e.g. "comandante", "operador", "880.819")
+  militarId?: string; // linked militar ID if role === "operador" / "militar"
+  password: string; // password
+  primeiroAcesso: boolean; // true if default password or needs reset
+  role: UserRole;
+  nomeDisplay: string;
+}
+
+export function isComandante(user?: UsuarioAuth | null): boolean {
+  if (!user) return false;
+  return user.role === "comandante" || user.role === "admin";
+}
+
+export function isOperador(user?: UsuarioAuth | null): boolean {
+  if (!user) return false;
+  return user.role === "operador" || user.role === "militar";
+}
+
 export interface EscalaItem {
   id: string;
   unidadeId: string;
@@ -112,7 +134,7 @@ export interface EscalaItem {
   militarOriginalId?: string; // If permuta occurred
   isAjuste: boolean;
   observacoes?: string;
-  status: "projetada" | "efetivada" | "ajustada";
+  status: "projetada" | "efetivada" | "ajustada" | "concluida";
 }
 
 export interface AlertaEscala {

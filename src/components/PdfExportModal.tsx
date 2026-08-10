@@ -8,7 +8,7 @@ import {
   Afastamento,
   SemanaOperacional
 } from "../types";
-import { formatDateBr, getOperationalWeekForDate, sortPostosEmOrdemOficial } from "../utils/rulesEngine";
+import { formatDateBr, getOperationalWeekForDate, sortPostosEmOrdemOficial, calcularInformativoNumero } from "../utils/rulesEngine";
 import { exportElementToPdf } from "../utils/pdfGenerator";
 import { Download, Printer, X } from "lucide-react";
 
@@ -218,7 +218,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                 <div className="border border-black text-[10.5px] grid grid-cols-3 divide-x divide-black bg-white" style={{ borderColor: "#000000" }}>
                   <div className="p-1.5 col-span-2 space-y-0.5">
                     <p>
-                      <strong>INFORMATIVO Nº {cab.informativoNumero}</strong>
+                      <strong>INFORMATIVO Nº {calcularInformativoNumero(semanaInfo.dataInicioTerca, cab.informativoNumero)}</strong>
                     </p>
                     <p>Comandante do 17º BPM: <strong>{cab.comandanteBpm}</strong></p>
                     <p>Comandante do NPM: <strong>{cab.comandanteNpm}</strong></p>

@@ -8,7 +8,8 @@ import {
 } from "../types";
 import {
   formatDateBr,
-  sortPostosEmOrdemOficial
+  sortPostosEmOrdemOficial,
+  getTodayString
 } from "../utils/rulesEngine";
 import {
   Calendar as CalendarIcon,
@@ -27,7 +28,8 @@ import {
   Shield,
   Eye,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Lock
 } from "lucide-react";
 
 interface MonthlyCalendarProps {
@@ -39,6 +41,7 @@ interface MonthlyCalendarProps {
   onProjetarFuturo: (dataInicioTerca: string, semanas: number) => void;
   onResetarProjecao?: () => void;
   onUpdateEscalas?: (novasEscalas: EscalaItem[]) => void;
+  isComandante?: boolean;
 }
 
 export interface DiaProjecaoInfo {
@@ -69,7 +72,8 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
   escalas,
   afastamentos,
   onProjetarFuturo,
-  onResetarProjecao
+  onResetarProjecao,
+  isComandante = true
 }) => {
   // Current month anchor (e.g. 2026-08)
   const [mesAno, setMesAno] = useState("2026-08");
@@ -318,25 +322,34 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
             </button>
           </div>
 
-          {/* Automatic Projection */}
-          <button
-            onClick={() => {
-              let d = new Date(ano, mes - 1, 1);
-              while (d.getDay() !== 2) {
-                d.setDate(d.getDate() + 1);
-              }
-              const firstTuesStr = d.toISOString().split("T")[0];
-              onProjetarFuturo(firstTuesStr, 5);
-            }}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-all shadow-md active:scale-95 cursor-pointer"
-            title="Projeta o restante do mês com base na escala semanal e no ciclo de turnos"
-          >
-            <Sparkles className="w-4 h-4 text-blue-200" />
-            <span>Executar Projeção Automática</span>
-          </button>
+          {!isComandante && (
+            <div className="flex items-center gap-2 bg-blue-950/80 border border-blue-700/60 text-blue-200 px-3.5 py-2 rounded-xl text-xs font-semibold shadow-sm">
+              <Eye className="w-4 h-4 text-blue-400 shrink-0" />
+              <span><strong>Modo Consulta (Operador):</strong> Visualização liberada. Ações de projeção e reset desativadas.</span>
+            </div>
+          )}
 
-          {/* Reset Auto-Projection Button */}
-          {onResetarProjecao && (
+          {/* Automatic Projection (Comandante Only) */}
+          {isComandante && (
+            <button
+              onClick={() => {
+                let d = new Date(ano, mes - 1, 1);
+                while (d.getDay() !== 2) {
+                  d.setDate(d.getDate() + 1);
+                }
+                const firstTuesStr = d.toISOString().split("T")[0];
+                onProjetarFuturo(firstTuesStr, 5);
+              }}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-all shadow-md active:scale-95 cursor-pointer"
+              title="Projeta o restante do mês com base na escala semanal e no ciclo de turnos"
+            >
+              <Sparkles className="w-4 h-4 text-blue-200" />
+              <span>Executar Projeção Automática</span>
+            </button>
+          )}
+
+          {/* Reset Auto-Projection Button (Comandante Only) */}
+          {isComandante && onResetarProjecao && (
             <button
               onClick={onResetarProjecao}
               className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-rose-300 hover:text-rose-200 font-bold text-xs px-3.5 py-2.5 rounded-xl border border-rose-500/30 transition-all shadow-sm active:scale-95 cursor-pointer"
@@ -555,6 +568,15 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                           Semana
                         </span>
                       )}
+                      {dataStr < getTodayString() ? (
+                        <span className="text-[7.5px] font-black uppercase text-emerald-300 bg-emerald-950/80 px-1 py-0.2 rounded border border-emerald-700/60">
+                          Concluída
+                        </span>
+                      ) : (
+                        <span className="text-[7.5px] font-black uppercase text-blue-300 bg-blue-950/80 px-1 py-0.2 rounded border border-blue-800/60">
+                          Aberta
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-1 font-mono text-[9.5px]">
@@ -669,11 +691,20 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                   <Building2 className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-base text-slate-100 uppercase tracking-wide flex items-center gap-2">
+                  <h3 className="font-extrabold text-base text-slate-100 uppercase tracking-wide flex flex-wrap items-center gap-2">
                     Guarnição do Dia {formatDateBr(diaSelecionadoModal.dataStr)}
                     {diaSelecionadoModal.isTerca && (
                       <span className="text-[10px] font-extrabold text-blue-300 bg-blue-600/30 px-2 py-0.5 rounded border border-blue-500/40">
                         Início da Semana
+                      </span>
+                    )}
+                    {diaSelecionadoModal.dataStr < getTodayString() ? (
+                      <span className="text-[10px] font-extrabold text-emerald-300 bg-emerald-950/90 px-2 py-0.5 rounded border border-emerald-700/80 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Status: CONCLUÍDA
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-extrabold text-blue-300 bg-blue-950/90 px-2 py-0.5 rounded border border-blue-800 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-blue-400" /> Status: ABERTA (EDIÇÃO PERMITIDA)
                       </span>
                     )}
                   </h3>

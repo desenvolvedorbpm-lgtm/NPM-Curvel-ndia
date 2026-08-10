@@ -5,7 +5,10 @@ import {
   PostoServico,
   Militar,
   Afastamento,
-  EscalaItem
+  EscalaItem,
+  UsuarioAuth,
+  isComandante,
+  isOperador
 } from "./types";
 import {
   UNIDADES_INICIAIS,
@@ -15,6 +18,7 @@ import {
   ESCALA_INICIAL_04_A_10_AGOSTO
 } from "./data/initialData";
 import { Header } from "./components/Header";
+import { LoginPage, normalizeUser } from "./components/LoginPage";
 import { ScheduleGrid } from "./components/ScheduleGrid";
 import { MonthlyCalendar } from "./components/MonthlyCalendar";
 import { PostosManager } from "./components/PostosManager";
@@ -25,14 +29,17 @@ import { PermutaModal } from "./components/PermutaModal";
 import { AjusteModal } from "./components/AjusteModal";
 import { PdfExportModal } from "./components/PdfExportModal";
 import { ConflictsManager } from "./components/ConflictsManager";
-import { projetarEscalasSemanais, validarRegrasEscala, lancarMilitarExpedienteAutomatico, getOperationalWeekForDate, obterTodosConflitosEscala } from "./utils/rulesEngine";
+import { projetarEscalasSemanais, validarRegrasEscala, lancarMilitarExpedienteAutomatico, getOperationalWeekForDate, obterTodosConflitosEscala, getTodayString, formatDateBr, reajustarHierarquiaGuarnicao } from "./utils/rulesEngine";
+import { saveCollectionToFirestore, subscribeToCollection } from "./lib/dbService";
 
 const LS_KEYS = {
   UNIDADES: "pmmt_unidades_v2",
   POSTOS: "pmmt_postos_v2",
   MILITARES: "pmmt_militares_v2",
   AFASTAMENTOS: "pmmt_afastamentos_v2",
-  ESCALAS: "pmmt_escalas_v2"
+  ESCALAS: "pmmt_escalas_v2",
+  USUARIOS: "pmmt_usuarios_v2",
+  USUARIO_LOGADO: "pmmt_usuario_logado_v2"
 };
 
 function getStoredData<T>(key: string, fallback: T): T {
@@ -43,6 +50,47 @@ function getStoredData<T>(key: string, fallback: T): T {
     console.warn("Error reading localStorage", key, err);
     return fallback;
   }
+}
+
+function getInitialUsuarios(militaresList: Militar[]): UsuarioAuth[] {
+  const comandanteUser: UsuarioAuth = {
+    id: "user-comandante",
+    username: "comandante",
+    role: "comandante",
+    password: "123456",
+    primeiroAcesso: false,
+    nomeDisplay: "Comandante da Unidade"
+  };
+
+  const operadorUser: UsuarioAuth = {
+    id: "user-operador",
+    username: "operador",
+    role: "operador",
+    password: "123456",
+    primeiroAcesso: false,
+    nomeDisplay: "Operador de Escala (Consulta)"
+  };
+
+  const adminUser: UsuarioAuth = {
+    id: "user-admin",
+    username: "admin",
+    role: "comandante",
+    password: "123456",
+    primeiroAcesso: false,
+    nomeDisplay: "Administrador do Sistema"
+  };
+
+  const militaryUsers: UsuarioAuth[] = militaresList.map((m) => ({
+    id: `user-${m.id}`,
+    username: m.rgPmmt,
+    militarId: m.id,
+    role: "operador",
+    password: "123456",
+    primeiroAcesso: false,
+    nomeDisplay: `${m.graduacao} ${m.nomeGuerra}`
+  }));
+
+  return [comandanteUser, operadorUser, adminUser, ...militaryUsers];
 }
 
 export default function App() {
@@ -65,41 +113,154 @@ export default function App() {
     getStoredData(LS_KEYS.ESCALAS, ESCALA_INICIAL_04_A_10_AGOSTO)
   );
 
-  // Sync state to LocalStorage
+  // Authentication & Users State
+  const [usuarios, setUsuarios] = useState<UsuarioAuth[]>(() =>
+    getStoredData(LS_KEYS.USUARIOS, getInitialUsuarios(MILITARES_INICIAIS))
+  );
+  const [usuarioLogado, setUsuarioLogado] = useState<UsuarioAuth | null>(() =>
+    getStoredData<UsuarioAuth | null>(LS_KEYS.USUARIO_LOGADO, null)
+  );
+
+  // Sync user list whenever militares list is updated
+  React.useEffect(() => {
+    setUsuarios((prev) => {
+      let changed = false;
+      const updated = [...prev];
+
+      for (const m of militares) {
+        const exists = updated.some(
+          (u) => u.militarId === m.id || normalizeUser(u.username) === normalizeUser(m.rgPmmt)
+        );
+        if (!exists) {
+          changed = true;
+          updated.push({
+            id: `user-${m.id}`,
+            username: m.rgPmmt,
+            militarId: m.id,
+            role: "operador",
+            password: "123456",
+            primeiroAcesso: false,
+            nomeDisplay: `${m.graduacao} ${m.nomeGuerra}`
+          });
+        } else {
+          const idx = updated.findIndex(
+            (u) => u.militarId === m.id || normalizeUser(u.username) === normalizeUser(m.rgPmmt)
+          );
+          if (idx !== -1) {
+            const expectedName = `${m.graduacao} ${m.nomeGuerra}`;
+            if (updated[idx].nomeDisplay !== expectedName || updated[idx].username !== m.rgPmmt) {
+              changed = true;
+              updated[idx] = {
+                ...updated[idx],
+                username: m.rgPmmt,
+                nomeDisplay: expectedName
+              };
+            }
+          }
+        }
+      }
+
+      return changed ? updated : prev;
+    });
+  }, [militares]);
+
+  // Real-time Firestore Subscriptions
+  React.useEffect(() => {
+    const unsubUnidades = subscribeToCollection("unidades", UNIDADES_INICIAIS, (items) => {
+      setUnidades(items);
+    });
+    const unsubPostos = subscribeToCollection("postos", POSTOS_INICIAIS, (items) => {
+      setPostos(items);
+    });
+    const unsubMilitares = subscribeToCollection("militares", MILITARES_INICIAIS, (items) => {
+      setMilitares(items);
+    });
+    const unsubAfastamentos = subscribeToCollection("afastamentos", AFASTAMENTOS_INICIAIS, (items) => {
+      setAfastamentos(items);
+    });
+    const unsubEscalas = subscribeToCollection("escalas", ESCALA_INICIAL_04_A_10_AGOSTO, (items) => {
+      setEscalas(items);
+    });
+    const unsubUsuarios = subscribeToCollection("usuarios", getInitialUsuarios(MILITARES_INICIAIS), (items) => {
+      setUsuarios(items);
+    });
+
+    return () => {
+      unsubUnidades();
+      unsubPostos();
+      unsubMilitares();
+      unsubAfastamentos();
+      unsubEscalas();
+      unsubUsuarios();
+    };
+  }, []);
+
+  // Sync state to LocalStorage & Firestore
   React.useEffect(() => {
     try {
       localStorage.setItem(LS_KEYS.UNIDADES, JSON.stringify(unidades));
+      saveCollectionToFirestore("unidades", unidades);
     } catch (e) { console.error(e); }
   }, [unidades]);
 
   React.useEffect(() => {
     try {
       localStorage.setItem(LS_KEYS.POSTOS, JSON.stringify(postos));
+      saveCollectionToFirestore("postos", postos);
     } catch (e) { console.error(e); }
   }, [postos]);
 
   React.useEffect(() => {
     try {
       localStorage.setItem(LS_KEYS.MILITARES, JSON.stringify(militares));
+      saveCollectionToFirestore("militares", militares);
     } catch (e) { console.error(e); }
   }, [militares]);
 
   React.useEffect(() => {
     try {
       localStorage.setItem(LS_KEYS.AFASTAMENTOS, JSON.stringify(afastamentos));
+      saveCollectionToFirestore("afastamentos", afastamentos);
     } catch (e) { console.error(e); }
   }, [afastamentos]);
 
   React.useEffect(() => {
     try {
       localStorage.setItem(LS_KEYS.ESCALAS, JSON.stringify(escalas));
+      saveCollectionToFirestore("escalas", escalas);
     } catch (e) { console.error(e); }
   }, [escalas]);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(LS_KEYS.USUARIOS, JSON.stringify(usuarios));
+      saveCollectionToFirestore("usuarios", usuarios);
+    } catch (e) { console.error(e); }
+  }, [usuarios]);
+
+  React.useEffect(() => {
+    try {
+      if (usuarioLogado) {
+        localStorage.setItem(LS_KEYS.USUARIO_LOGADO, JSON.stringify(usuarioLogado));
+      } else {
+        localStorage.removeItem(LS_KEYS.USUARIO_LOGADO);
+      }
+    } catch (e) { console.error(e); }
+  }, [usuarioLogado]);
 
   // UI State
   const [tabAtiva, setTabAtiva] = useState<
     "escala" | "mensal" | "conflitos" | "postos" | "militares" | "afastamentos" | "configuracoes"
   >("escala");
+
+  // Tab Guard: Operador profile can only view 'escala' or 'mensal'
+  React.useEffect(() => {
+    if (usuarioLogado && !isComandante(usuarioLogado)) {
+      if (tabAtiva !== "escala" && tabAtiva !== "mensal") {
+        setTabAtiva("escala");
+      }
+    }
+  }, [usuarioLogado, tabAtiva]);
 
   // Navigation from Conflicts to Schedule Grid
   const [dataTercaNavegacao, setDataTercaNavegacao] = useState("2026-08-04");
@@ -173,22 +334,34 @@ export default function App() {
     sigadoc: string,
     observacao: string
   ) => {
-    setEscalas(
-      escalas.map((e) => {
-        if (e.id === escalaItemId) {
-          return {
-            ...e,
-            militarOriginalId: e.militarId,
-            militarId: militarSubstitutoId,
-            isPermuta: true,
-            sigadocPermuta: sigadoc,
-            observacoes: observacao,
-            status: "efetivada"
-          };
-        }
-        return e;
-      })
+    const itemAlvo = escalas.find((e) => e.id === escalaItemId);
+    if (!itemAlvo) return;
+
+    const escalasAposPermuta = escalas.map((e) => {
+      if (e.id === escalaItemId) {
+        return {
+          ...e,
+          militarOriginalId: e.militarId,
+          militarId: militarSubstitutoId,
+          isPermuta: true,
+          sigadocPermuta: sigadoc,
+          observacoes: observacao,
+          status: "efetivada" as const
+        };
+      }
+      return e;
+    });
+
+    // Re-adjust guarnição hierarchy on that day for that unit so the most senior officer is Comandante da GU
+    const escalasReajustadas = reajustarHierarquiaGuarnicao(
+      escalasAposPermuta,
+      itemAlvo.data,
+      itemAlvo.unidadeId,
+      militares,
+      postos
     );
+
+    setEscalas(escalasReajustadas);
     setPermutaItem(null);
   };
 
@@ -212,6 +385,14 @@ export default function App() {
       }
       return e;
     });
+
+    novasEscalas = reajustarHierarquiaGuarnicao(
+      novasEscalas,
+      itemOriginal.data,
+      itemOriginal.unidadeId,
+      militares,
+      postos
+    );
 
     if (recalculateFuture) {
       // Recalculate projections starting from this date
@@ -267,19 +448,43 @@ export default function App() {
     setTimeout(() => setToastFeedback(null), 5000);
   };
 
-  // Reset / Clear Auto-Projection Handler (preserves manual entries)
+  // Reset / Clear Auto-Projection Handler (preserves manual entries & completed past days)
   const handleResetarProjecao = () => {
     setShowConfirmResetModal(true);
   };
 
   const handleConfirmarResetProjecao = () => {
-    const mantidas = escalas.filter((e) => e.status !== "projetada" && !e.id.startsWith("proj-"));
-    const removidosCount = escalas.length - mantidas.length;
+    const hojeStr = getTodayString();
+    const mantidas: EscalaItem[] = [];
+    let removidosCount = 0;
+
+    for (const item of escalas) {
+      const isProjetada = item.status === "projetada" || item.id.startsWith("proj-");
+      const isPassada = item.data < hojeStr;
+
+      if (isPassada) {
+        // Dias que já passaram: alteram status para 'concluida' e são mantidas intactas
+        mantidas.push({
+          ...item,
+          status: "concluida"
+        });
+      } else {
+        // Dia atual ou dias futuros (Status: "aberta" / passível de edição/alteração)
+        if (isProjetada) {
+          // Apenas escalas automáticas projetadas de hoje e do futuro são resetadas
+          removidosCount++;
+        } else {
+          // Lançamentos manuais, permutas e ajustes do dia atual e futuros são mantidos
+          mantidas.push(item);
+        }
+      }
+    }
+
     setEscalas(mantidas);
     setShowConfirmResetModal(false);
 
     setToastFeedback({
-      message: `${removidosCount} registro(s) de projeção automática foram removidos. Lançamentos manuais e permutas foram mantidos intactos!`,
+      message: `${removidosCount} escala(s) projetada(s) de hoje (${formatDateBr(hojeStr)}) e dias futuros foram removidas. Escalas de dias passados (Status: Concluída) e lançamentos manuais foram mantidos!`,
       type: "success"
     });
     setTimeout(() => setToastFeedback(null), 5000);
@@ -295,6 +500,16 @@ export default function App() {
   );
   const alertasAtivosCount = conflitosAtivos.length;
 
+  if (!usuarioLogado) {
+    return (
+      <LoginPage
+        usuarios={usuarios}
+        onUpdateUsuarios={(novos) => setUsuarios(novos)}
+        onLoginSuccess={(user) => setUsuarioLogado(user)}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col selection:bg-blue-600 selection:text-white">
       {/* Top Header & Navigation */}
@@ -306,6 +521,8 @@ export default function App() {
         onSelectTab={(tab) => setTabAtiva(tab)}
         onAbrirPdf={() => setPdfModalAberto(true)}
         qtdAlertasAtivos={alertasAtivosCount}
+        usuarioLogado={usuarioLogado}
+        onLogout={() => setUsuarioLogado(null)}
       />
 
       {/* Tab Content Router */}
@@ -326,6 +543,7 @@ export default function App() {
             onSetDataTercaNavegacao={(dt) => setDataTercaNavegacao(dt)}
             dataDestaque={dataDestaqueNavegacao}
             onLimparDestaque={() => setDataDestaqueNavegacao(null)}
+            isComandante={isComandante(usuarioLogado)}
           />
         )}
 
@@ -339,6 +557,7 @@ export default function App() {
             onProjetarFuturo={handleProjetarFuturo}
             onResetarProjecao={handleResetarProjecao}
             onUpdateEscalas={(novas) => setEscalas(novas)}
+            isComandante={isComandante(usuarioLogado)}
           />
         )}
 
@@ -460,10 +679,13 @@ export default function App() {
 
             <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80 text-xs text-slate-300 leading-relaxed space-y-2">
               <p>
-                Esta ação removerá <strong>APENAS</strong> os lançamentos gerados pela projeção automática.
+                Esta ação removerá <strong>APENAS</strong> a escala projetada para o <strong>dia atual e dias futuros</strong> (Status: <span className="text-blue-400 font-bold">Aberta</span>).
               </p>
               <p className="text-emerald-400 font-semibold">
-                ✓ Lançamentos manuais, trocas e permutas serão MANTIDOS intactos na escala.
+                ✓ Dias em que a escala já passou entram no status <strong>Concluída</strong> e NÃO serão resetados.
+              </p>
+              <p className="text-amber-300 font-semibold">
+                ✓ Lançamentos manuais, trocas e permutas permanecem 100% intactos.
               </p>
             </div>
 

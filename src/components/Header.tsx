@@ -1,5 +1,5 @@
 import React from "react";
-import { UnidadeTenant } from "../types";
+import { UnidadeTenant, UsuarioAuth, isComandante } from "../types";
 import {
   Calendar,
   Grid,
@@ -9,8 +9,13 @@ import {
   Settings,
   FileText,
   Building2,
-  AlertCircle,
-  AlertTriangle
+  AlertTriangle,
+  User,
+  LogOut,
+  ShieldCheck,
+  Eye,
+  Shield,
+  Cloud
 } from "lucide-react";
 
 interface HeaderProps {
@@ -21,6 +26,8 @@ interface HeaderProps {
   onSelectTab: (tab: "escala" | "mensal" | "conflitos" | "postos" | "militares" | "afastamentos" | "configuracoes") => void;
   onAbrirPdf: () => void;
   qtdAlertasAtivos: number;
+  usuarioLogado?: UsuarioAuth | null;
+  onLogout?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -30,7 +37,9 @@ export const Header: React.FC<HeaderProps> = ({
   tabAtiva,
   onSelectTab,
   onAbrirPdf,
-  qtdAlertasAtivos
+  qtdAlertasAtivos,
+  usuarioLogado,
+  onLogout
 }) => {
   return (
     <header className="bg-slate-900/90 text-white border-b border-slate-800 sticky top-0 z-30 shadow-xl backdrop-blur-md">
@@ -55,7 +64,56 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Cloud DB Badge */}
+          <div className="hidden lg:flex items-center gap-1.5 bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 rounded-xl px-2.5 py-1 text-[11px] font-semibold shadow-xs" title="Conectado ao Firebase Firestore com sincronização em tempo real">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Firestore Nuvem</span>
+          </div>
+
+          {/* Logged In User Badge */}
+          {usuarioLogado && (
+            <div className="flex items-center gap-2 bg-slate-800/90 border border-slate-700/90 rounded-xl px-3 py-1.5 shadow-sm">
+              <div
+                className={`p-1 rounded-lg border ${
+                  isComandante(usuarioLogado)
+                    ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                    : "bg-blue-600/20 text-blue-300 border-blue-500/30"
+                }`}
+              >
+                {isComandante(usuarioLogado) ? (
+                  <Shield className="w-4 h-4 text-amber-400" />
+                ) : (
+                  <Eye className="w-4 h-4 text-blue-400" />
+                )}
+              </div>
+              <div className="flex flex-col">
+                <span className="text-xs font-black text-slate-100 leading-none flex items-center gap-1">
+                  {usuarioLogado.nomeDisplay}
+                </span>
+                <span
+                  className={`text-[9.5px] font-bold font-mono leading-tight mt-0.5 ${
+                    isComandante(usuarioLogado) ? "text-amber-400" : "text-blue-400"
+                  }`}
+                >
+                  {isComandante(usuarioLogado)
+                    ? "PERFIL COMANDANTE (Acesso Total)"
+                    : "PERFIL OPERADOR (Consulta)"}
+                </span>
+              </div>
+              {onLogout && (
+                <button
+                  onClick={onLogout}
+                  className="ml-1 p-1 hover:bg-slate-700 rounded-lg text-rose-400 hover:text-rose-300 transition-colors cursor-pointer"
+                  title="Sair / Encerrar Sessão"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Tenant Selector */}
           <div className="flex items-center gap-2 bg-slate-800/80 border border-slate-700/80 rounded-xl px-3 py-1.5 text-sm">
             <Building2 className="w-4 h-4 text-slate-400" />
@@ -76,8 +134,8 @@ export const Header: React.FC<HeaderProps> = ({
             </select>
           </div>
 
-          {/* Active Alerts Pill */}
-          {qtdAlertasAtivos > 0 && (
+          {/* Active Alerts Pill (Comandante only) */}
+          {isComandante(usuarioLogado) && qtdAlertasAtivos > 0 && (
             <button
               onClick={() => onSelectTab("conflitos")}
               className="flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 px-2.5 py-1 rounded-xl text-xs font-bold animate-pulse cursor-pointer transition-all shadow-sm active:scale-95"
@@ -126,70 +184,74 @@ export const Header: React.FC<HeaderProps> = ({
             <span>Projeção Mensal</span>
           </button>
 
-          <button
-            onClick={() => onSelectTab("conflitos")}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer relative ${
-              tabAtiva === "conflitos"
-                ? "bg-amber-500/15 text-amber-300 border border-amber-500/40 font-bold shadow-xs"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-            }`}
-          >
-            <AlertTriangle className={`w-3.5 h-3.5 ${qtdAlertasAtivos > 0 ? "text-amber-400" : ""}`} />
-            <span>Conflitos</span>
-            {qtdAlertasAtivos > 0 && (
-              <span className="bg-amber-500 text-slate-950 font-black text-[10px] px-1.5 py-0.2 rounded-full ml-0.5 shadow-sm">
-                {qtdAlertasAtivos}
-              </span>
-            )}
-          </button>
+          {isComandante(usuarioLogado) && (
+            <>
+              <button
+                onClick={() => onSelectTab("conflitos")}
+                className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer relative ${
+                  tabAtiva === "conflitos"
+                    ? "bg-amber-500/15 text-amber-300 border border-amber-500/40 font-bold shadow-xs"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                }`}
+              >
+                <AlertTriangle className={`w-3.5 h-3.5 ${qtdAlertasAtivos > 0 ? "text-amber-400" : ""}`} />
+                <span>Conflitos</span>
+                {qtdAlertasAtivos > 0 && (
+                  <span className="bg-amber-500 text-slate-950 font-black text-[10px] px-1.5 py-0.2 rounded-full ml-0.5 shadow-sm">
+                    {qtdAlertasAtivos}
+                  </span>
+                )}
+              </button>
 
-          <button
-            onClick={() => onSelectTab("postos")}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
-              tabAtiva === "postos"
-                ? "bg-blue-600/15 text-blue-400 border border-blue-500/30 font-bold shadow-xs"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-            }`}
-          >
-            <Briefcase className="w-3.5 h-3.5" />
-            <span>Postos de Serviço (CRUD)</span>
-          </button>
+              <button
+                onClick={() => onSelectTab("postos")}
+                className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+                  tabAtiva === "postos"
+                    ? "bg-blue-600/15 text-blue-400 border border-blue-500/30 font-bold shadow-xs"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                }`}
+              >
+                <Briefcase className="w-3.5 h-3.5" />
+                <span>Postos de Serviço (CRUD)</span>
+              </button>
 
-          <button
-            onClick={() => onSelectTab("militares")}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
-              tabAtiva === "militares"
-                ? "bg-blue-600/15 text-blue-400 border border-blue-500/30 font-bold shadow-xs"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>Efetivo Militar (Antiguidade)</span>
-          </button>
+              <button
+                onClick={() => onSelectTab("militares")}
+                className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+                  tabAtiva === "militares"
+                    ? "bg-blue-600/15 text-blue-400 border border-blue-500/30 font-bold shadow-xs"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Efetivo Militar (Antiguidade)</span>
+              </button>
 
-          <button
-            onClick={() => onSelectTab("afastamentos")}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
-              tabAtiva === "afastamentos"
-                ? "bg-blue-600/15 text-blue-400 border border-blue-500/30 font-bold shadow-xs"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-            }`}
-          >
-            <UserX className="w-3.5 h-3.5" />
-            <span>Férias & Ausências</span>
-          </button>
+              <button
+                onClick={() => onSelectTab("afastamentos")}
+                className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+                  tabAtiva === "afastamentos"
+                    ? "bg-blue-600/15 text-blue-400 border border-blue-500/30 font-bold shadow-xs"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                }`}
+              >
+                <UserX className="w-3.5 h-3.5" />
+                <span>Férias & Ausências</span>
+              </button>
 
-          <button
-            onClick={() => onSelectTab("configuracoes")}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ml-auto ${
-              tabAtiva === "configuracoes"
-                ? "bg-blue-600/15 text-blue-400 border border-blue-500/30 font-bold shadow-xs"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-            }`}
-          >
-            <Settings className="w-3.5 h-3.5" />
-            <span>Cabeçalho & Configurações</span>
-          </button>
+              <button
+                onClick={() => onSelectTab("configuracoes")}
+                className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ml-auto ${
+                  tabAtiva === "configuracoes"
+                    ? "bg-blue-600/15 text-blue-400 border border-blue-500/30 font-bold shadow-xs"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                }`}
+              >
+                <Settings className="w-3.5 h-3.5" />
+                <span>Cabeçalho & Configurações</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
     </header>

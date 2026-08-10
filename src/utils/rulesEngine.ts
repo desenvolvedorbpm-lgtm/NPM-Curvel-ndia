@@ -918,11 +918,229 @@ export function obterTodosConflitosEscala(
     }
   }
 
+
   // Sort by gravity (CRITICO first) then by date ascending
   return conflitos.sort((a, b) => {
     if (a.nivelGravidade === "CRITICO" && b.nivelGravidade !== "CRITICO") return -1;
     if (a.nivelGravidade !== "CRITICO" && b.nivelGravidade === "CRITICO") return 1;
     return a.data.localeCompare(b.data);
+  });
+}
+
+/**
+ * Calculates the Informativo Number dynamically according to PMMT rules:
+ * - Base week: 04/08/2026 to 10/08/2026 -> Informativo 83/2026 17º BPM/NPM DE CURVELÂNDIA
+ * - Sequential weeks in 2026 increment by +1 (e.g. 84/2026, 85/2026...)
+ * - Year is derived from the week's Tuesday start date.
+ * - On year rollover (e.g. 2027), the number resets to 1 for the first Tuesday of that year.
+ */
+export function calcularInformativoNumero(
+  dataTercaStr: string,
+  unidadeInformativoStr?: string
+): string {
+  if (!dataTercaStr) return "83/2026 17º BPM/NPM DE CURVELANDIA";
+
+  const terca = new Date(dataTercaStr + "T12:00:00");
+  const ano = terca.getFullYear();
+
+  // Extract base number for 2026 if available in stored template (default 83)
+  let baseNumber2026 = 83;
+  let sufixo = "17º BPM/NPM DE CURVELANDIA";
+
+  if (unidadeInformativoStr) {
+    const raw = unidadeInformativoStr.trim();
+    // Match leading digits before slash e.g. "83/2026 17º BPM..." or "102/2026 17º BPM"
+    const match = raw.match(/^(\d+)\/\d+\s*(.*)$/);
+    if (match) {
+      baseNumber2026 = parseInt(match[1], 10);
+      if (match[2]) {
+        sufixo = match[2];
+      }
+    } else {
+      sufixo = raw;
+    }
+  }
+
+  let numInformativo = 1;
+
+  if (ano === 2026) {
+    const baseline2026 = new Date("2026-08-04T12:00:00");
+    const diffMs = terca.getTime() - baseline2026.getTime();
+    const diffWeeks = Math.round(diffMs / (7 * 24 * 3600 * 1000));
+    numInformativo = baseNumber2026 + diffWeeks;
+  } else {
+    // First Tuesday of year `ano`
+    const primeiradataAno = new Date(`${ano}-01-01T12:00:00`);
+    const dayOfWeek = primeiradataAno.getDay(); // 0 = Sun, 1 = Mon, 2 = Tue
+    const daysUntilTuesday = (2 - dayOfWeek + 7) % 7;
+    const primeiraTercaAno = new Date(primeiradataAno);
+    primeiraTercaAno.setDate(primeiradataAno.getDate() + daysUntilTuesday);
+
+    const diffMs = terca.getTime() - primeiraTercaAno.getTime();
+    const diffWeeks = Math.round(diffMs / (7 * 24 * 3600 * 1000));
+    numInformativo = 1 + diffWeeks;
+  }
+
+  if (numInformativo < 1) numInformativo = 1;
+
+  return `${numInformativo}/${ano} ${sufixo}`;
+}
+
+/**
+ * Returns today's date string in YYYY-MM-DD local format.
+ */
+export function getTodayString(): string {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/**
+ * Determines whether a given scale date is past ("concluida") or active/future ("aberta").
+ * - If dataStr < hojeStr: scale day has passed, status is "concluida" (immutable / non-deletable on reset).
+ * - If dataStr >= hojeStr: scale day is today or future, status is "aberta" (editable / resettable if projected).
+ */
+export function obterStatusDiaEscala(
+  dataStr: string,
+  hojeStr: string = getTodayString()
+): "concluida" | "aberta" {
+  return dataStr < hojeStr ? "concluida" : "aberta";
+}
+
+/**
+ * Reajusta a hierarquia de uma guarnição em determinada data.
+ * Garante que o militar MAIS ANTIGO da guarnição assuma a função de Comandante da GU,
+ * e os demais assumam os postos subsequentes (Motorista, Patrulheiro, etc.),
+ * remanejando militares mais modernos se necessário e preservando os metadados de permuta.
+ */
+export function reajustarHierarquiaGuarnicao(
+  escalas: EscalaItem[],
+  data: string,
+  unidadeId: string,
+  militares: Militar[],
+  postos: PostoServico[]
+): EscalaItem[] {
+  // 1. Encontrar todos os itens da escala para o dia e unidade
+  const itemsDia = escalas.filter((e) => e.unidadeId === unidadeId && e.data === data);
+  if (itemsDia.length <= 1) return escalas;
+
+  // 2. Mapear postos ativos ordenados por hierarquia oficial
+  const postosUnidade = sortPostosEmOrdemOficial(
+    postos.filter((p) => p.unidadeId === unidadeId && p.ativo)
+  );
+  const postosOpMap = new Map(postosUnidade.map((p) => [p.id, p]));
+
+  // 3. Filtrar itens da guarnição operacionais de 24h com militar alocado
+  const guarnicaoItems = itemsDia.filter((e) => {
+    const p = postosOpMap.get(e.postoId);
+    return (
+      p &&
+      p.tipoHorario === "24h" &&
+      e.militarId &&
+      e.militarId !== "REFORCO_EXTRAORDINARIO"
+    );
+  });
+
+  if (guarnicaoItems.length <= 1) return escalas;
+
+  // Order guarnicaoItems according to official post priority (Comandante -> Motorista -> Patrulheiro...)
+  guarnicaoItems.sort((a, b) => {
+    const pa = postosOpMap.get(a.postoId);
+    const pb = postosOpMap.get(b.postoId);
+    const indexA = pa ? postosUnidade.indexOf(pa) : 999;
+    const indexB = pb ? postosUnidade.indexOf(pb) : 999;
+    return indexA - indexB;
+  });
+
+  // Extract current militaries in the guarnicao and their metadata
+  const alocacoes = guarnicaoItems.map((item) => {
+    const militar = militares.find((m) => m.id === item.militarId);
+    return {
+      item,
+      militar,
+      militarId: item.militarId,
+      militarOriginalId: item.militarOriginalId,
+      isPermuta: item.isPermuta,
+      sigadocPermuta: item.sigadocPermuta,
+      isAjuste: item.isAjuste,
+      status: item.status,
+      observacoes: item.observacoes
+    };
+  });
+
+  // Sort militaries by seniority (antiguidadeOrdem: smaller number = mais antigo)
+  const alocacoesOrdenadasPorSenioridade = [...alocacoes].sort((a, b) => {
+    const antA = a.militar ? a.militar.antiguidadeOrdem : 9999;
+    const antB = b.militar ? b.militar.antiguidadeOrdem : 9999;
+    return antA - antB;
+  });
+
+  // Check CNH constraint for Motorista if applicable
+  if (guarnicaoItems.length >= 2) {
+    const postMot = postosOpMap.get(guarnicaoItems[1].postoId);
+    if (
+      postMot &&
+      (postMot.requerCnh ||
+        postMot.sigla.includes("MOTORISTA") ||
+        postMot.nome.toLowerCase().includes("motorista"))
+    ) {
+      const candidateMot = alocacoesOrdenadasPorSenioridade[1];
+      if (candidateMot && candidateMot.militar && !candidateMot.militar.cnhAtiva) {
+        // Look for next military down the seniority list who has CNH
+        const swapIdx = alocacoesOrdenadasPorSenioridade.findIndex(
+          (aloc, idx) => idx > 1 && aloc.militar && aloc.militar.cnhAtiva
+        );
+        if (swapIdx !== -1) {
+          const temp = alocacoesOrdenadasPorSenioridade[1];
+          alocacoesOrdenadasPorSenioridade[1] = alocacoesOrdenadasPorSenioridade[swapIdx];
+          alocacoesOrdenadasPorSenioridade[swapIdx] = temp;
+        }
+      }
+    }
+  }
+
+  // Create a mapping from item.id to the new military allocation that should occupy that post
+  const novosAtribPorItemId = new Map<string, typeof alocacoes[0]>();
+  guarnicaoItems.forEach((itemPosto, idx) => {
+    novosAtribPorItemId.set(itemPosto.id, alocacoesOrdenadasPorSenioridade[idx]);
+  });
+
+  // Return new scales array with updated items
+  return escalas.map((item) => {
+    const novaAloc = novosAtribPorItemId.get(item.id);
+    if (!novaAloc) return item;
+
+    const postInfo = postosOpMap.get(item.postoId);
+    const postNome = postInfo ? postInfo.nome : "Posto";
+
+    let obs = novaAloc.observacoes || "";
+    if (novaAloc.item.postoId !== item.postoId) {
+      const militarNome = novaAloc.militar
+        ? `${novaAloc.militar.graduacao} ${novaAloc.militar.nomeGuerra}`
+        : "";
+      if (postInfo?.sigla.includes("CMT") || postInfo?.nome.toLowerCase().includes("comandante")) {
+        obs = novaAloc.isPermuta
+          ? `${obs} (Assumiu Comandante da GU por Antiguidade - ${militarNome})`.trim()
+          : `Assumiu Comandante da GU por Antiguidade na guarnição (${militarNome})`;
+      } else {
+        obs = novaAloc.isPermuta
+          ? `${obs} (Remanejado para ${postNome} por Antiguidade)`.trim()
+          : `Remanejado para ${postNome} por Antiguidade (${militarNome})`;
+      }
+    }
+
+    return {
+      ...item,
+      militarId: novaAloc.militarId,
+      militarOriginalId: novaAloc.militarOriginalId,
+      isPermuta: novaAloc.isPermuta || false,
+      sigadocPermuta: novaAloc.sigadocPermuta,
+      isAjuste: novaAloc.isAjuste || false,
+      status: novaAloc.status || item.status,
+      observacoes: obs
+    };
   });
 }
 

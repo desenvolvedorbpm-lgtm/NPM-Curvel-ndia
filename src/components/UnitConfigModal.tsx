@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { UnidadeTenant, CabecalhoUnidade, HorarioExpediente } from "../types";
-import { Settings, Image, Building, Check, Plus, Trash2, Clock } from "lucide-react";
+import { Settings, Image, Building, Check, Plus, Trash2, Clock, Lock } from "lucide-react";
+import { calcularInformativoNumero } from "../utils/rulesEngine";
 
 interface UnitConfigModalProps {
   unidade: UnidadeTenant;
@@ -222,16 +223,24 @@ export const UnitConfigModal: React.FC<UnitConfigModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Número do Informativo / Ano
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-300">
+                  Número do Informativo / Ano (Fixo & Automático)
+                </label>
+                <span className="text-[10px] text-amber-400 font-bold bg-amber-950/60 border border-amber-800/80 px-1.5 py-0.5 rounded flex items-center gap-1">
+                  <Lock className="w-3 h-3" /> Fixo e Travado
+                </span>
+              </div>
               <input
                 type="text"
-                value={informativoNumero}
-                onChange={(e) => setInformativoNumero(e.target.value)}
-                placeholder="Ex: 83/2026 17º BPM/NPM DE CURVELANDIA"
-                className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                value={calcularInformativoNumero("2026-08-04", informativoNumero)}
+                readOnly
+                disabled
+                className="w-full bg-slate-950/90 border border-slate-800 text-amber-300 font-mono font-extrabold rounded-lg px-3 py-2 text-xs cursor-not-allowed opacity-90 shadow-inner"
               />
+              <span className="text-[10.5px] text-slate-400 block mt-1 leading-snug">
+                Base oficial para 04/08 a 10/08/2026: <strong className="text-slate-200 font-mono">83/2026 17º BPM/NPM DE CURVELÂNDIA</strong>. O número incrementa a cada nova semana (+1) e o ano é derivado da data da escala, reiniciando em 1 ao virar o ano.
+              </span>
             </div>
 
             <div>

@@ -128,6 +128,13 @@ export const PermutaModal: React.FC<PermutaModalProps> = ({
             </select>
           </div>
 
+          <div className="bg-blue-950/40 border border-blue-800/60 p-2.5 rounded-lg flex items-start gap-2 text-[11px] text-blue-200">
+            <Shield className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+            <span>
+              <strong>Regra de Hierarquia da Guarnição:</strong> Se a permuta incluir um militar mais moderno no posto de Comandante, o sistema reajustará automaticamente a guarnição, remanejando o mais moderno para outro posto (Motorista/Patrulheiro) e atribuindo o comando da guarnição ao militar mais antigo presente.
+            </span>
+          </div>
+
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1">
               <FileCheck className="w-4 h-4 text-blue-400" />

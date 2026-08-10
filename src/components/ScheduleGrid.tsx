@@ -14,7 +14,11 @@ import {
   sugerirMilitarParaPosto,
   formatDateBr,
   getMilitarAfastamentoNoDia,
-  sortPostosEmOrdemOficial
+  sortPostosEmOrdemOficial,
+  calcularInformativoNumero,
+  getTodayString,
+  obterStatusDiaEscala,
+  reajustarHierarquiaGuarnicao
 } from "../utils/rulesEngine";
 import {
   ChevronLeft,
@@ -31,7 +35,9 @@ import {
   Zap,
   CalendarDays,
   RotateCcw,
-  Trash2
+  Trash2,
+  Lock,
+  Eye
 } from "lucide-react";
 
 interface ScheduleGridProps {
@@ -49,6 +55,7 @@ interface ScheduleGridProps {
   onSetDataTercaNavegacao?: (dataTerca: string) => void;
   dataDestaque?: string | null;
   onLimparDestaque?: () => void;
+  isComandante?: boolean;
 }
 
 export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
@@ -65,7 +72,8 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
   dataTercaInicial,
   onSetDataTercaNavegacao,
   dataDestaque,
-  onLimparDestaque
+  onLimparDestaque,
+  isComandante = true
 }) => {
   // Current Tuesday anchor for operational week (default August 04, 2026)
   const [dataTercaAtual, setDataTercaAtual] = useState(dataTercaInicial || "2026-08-04");
@@ -114,21 +122,33 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
     mudarDataTerca("2026-08-04");
   };
 
-  // Week Options for Selector
-  const opcoesSemanas = [
-    { label: "Semana 1: 04/08 a 10/08/2026", value: "2026-08-04" },
-    { label: "Semana 2: 11/08 a 17/08/2026", value: "2026-08-11" },
-    { label: "Semana 3: 18/08 a 24/08/2026", value: "2026-08-18" },
-    { label: "Semana 4: 25/08 a 31/08/2026", value: "2026-08-25" },
-    { label: "Semana 5: 01/09 a 07/09/2026", value: "2026-09-01" },
-    { label: "Semana 6: 08/09 a 14/09/2026", value: "2026-09-08" },
-    { label: "Semana 7: 15/09 a 21/09/2026", value: "2026-09-15" },
-    { label: "Semana 8: 22/09 a 28/09/2026", value: "2026-09-22" }
+  // Week Options for Selector with Dynamic Informativo Numbers
+  const datasSemanasBase = [
+    "2026-08-04",
+    "2026-08-11",
+    "2026-08-18",
+    "2026-08-25",
+    "2026-09-01",
+    "2026-09-08",
+    "2026-09-15",
+    "2026-09-22"
   ];
 
+  const opcoesSemanas = datasSemanasBase.map((dStr) => {
+    const sem = getOperationalWeekForDate(dStr);
+    const inf = calcularInformativoNumero(dStr, unidade.cabecalho.informativoNumero);
+    const numOnly = inf.split(" ")[0];
+    return {
+      label: `Inf. ${numOnly} • ${formatDateBr(sem.dataInicioTerca)} a ${formatDateBr(sem.dataFimSegunda)}`,
+      value: dStr
+    };
+  });
+
   if (!opcoesSemanas.some((op) => op.value === dataTercaAtual)) {
+    const inf = calcularInformativoNumero(dataTercaAtual, unidade.cabecalho.informativoNumero);
+    const numOnly = inf.split(" ")[0];
     opcoesSemanas.unshift({
-      label: `Semana ${formatDateBr(semanaInfo.dataInicioTerca)} a ${formatDateBr(semanaInfo.dataFimSegunda)}`,
+      label: `Inf. ${numOnly} • ${formatDateBr(semanaInfo.dataInicioTerca)} a ${formatDateBr(semanaInfo.dataFimSegunda)}`,
       value: dataTercaAtual
     });
   }
@@ -279,6 +299,14 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
       novasEscalas.push(novoItem);
     }
 
+    novasEscalas = reajustarHierarquiaGuarnicao(
+      novasEscalas,
+      dataStr,
+      unidade.id,
+      militaresUnidade,
+      postosList
+    );
+
     onUpdateEscalas(novasEscalas);
     setDraggedMilitarId(null);
   };
@@ -353,12 +381,12 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
       {/* Week Toolbar & Projection Action Bar */}
       <div className="bg-slate-900 p-4 sm:p-5 rounded-xl border border-slate-800 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-[11px] font-extrabold text-blue-400 bg-blue-600/10 px-2.5 py-0.5 rounded-md border border-blue-500/20 uppercase">
               Semana Operacional (Terça a Segunda)
             </span>
-            <span className="text-[11px] text-slate-400 font-medium">
-              NPM de Curvelândia
+            <span className="text-[11px] font-extrabold text-amber-300 bg-amber-950/60 px-2.5 py-0.5 rounded-md border border-amber-800/80 font-mono">
+              INFORMATIVO Nº {calcularInformativoNumero(semanaInfo.dataInicioTerca, unidade.cabecalho.informativoNumero)}
             </span>
           </div>
           <h2 className="text-lg sm:text-xl font-extrabold text-slate-100 mt-1 flex items-center gap-2">
@@ -406,20 +434,30 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
             </button>
           </div>
 
-          {/* Trigger Projection Engine */}
-          <button
-            onClick={() => {
-              onProjetarFuturo(semanaInfo.dataInicioTerca, 5);
-            }}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow-md active:scale-95 cursor-pointer"
-            title="Projeta o sequenciamento mensal completo e exibe no calendário mensal"
-          >
-            <Sparkles className="w-4 h-4 text-blue-200" />
-            <span>Projetar Sequenciamento Mensal</span>
-          </button>
+          {/* Operador Notice Banner */}
+          {!isComandante && (
+            <div className="flex items-center gap-2 bg-blue-950/80 border border-blue-700/60 text-blue-200 px-3.5 py-2 rounded-xl text-xs font-semibold shadow-sm">
+              <Eye className="w-4 h-4 text-blue-400 shrink-0" />
+              <span><strong>Modo Consulta (Operador):</strong> Projeções, reset e edições desativadas.</span>
+            </div>
+          )}
 
-          {/* Reset Auto-Projection Button */}
-          {onResetarProjecao && (
+          {/* Trigger Projection Engine (Comandante Only) */}
+          {isComandante && (
+            <button
+              onClick={() => {
+                onProjetarFuturo(semanaInfo.dataInicioTerca, 5);
+              }}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow-md active:scale-95 cursor-pointer"
+              title="Projeta o sequenciamento mensal completo e exibe no calendário mensal"
+            >
+              <Sparkles className="w-4 h-4 text-blue-200" />
+              <span>Projetar Sequenciamento Mensal</span>
+            </button>
+          )}
+
+          {/* Reset Auto-Projection Button (Comandante Only) */}
+          {isComandante && onResetarProjecao && (
             <button
               onClick={onResetarProjecao}
               className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-rose-300 hover:text-rose-200 font-bold text-xs px-3 py-2.5 rounded-xl border border-rose-500/30 transition-all shadow-sm active:scale-95 cursor-pointer"
@@ -432,8 +470,9 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
         </div>
       </div>
 
-      {/* Roster Draggable Bar */}
-      <div className="bg-slate-900 text-white p-3.5 rounded-xl shadow-xl border border-slate-800 space-y-2.5">
+      {/* Roster Draggable Bar (Comandante Only for Dragging) */}
+      {isComandante ? (
+        <div className="bg-slate-900 text-white p-3.5 rounded-xl shadow-xl border border-slate-800 space-y-2.5">
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
             <img src="https://i.ibb.co/FqLxFKqG/logo-17bpm-removebg-preview.png" alt="Logo" className="w-4 h-4 object-contain" referrerPolicy="no-referrer" />
@@ -496,6 +535,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
           })}
         </div>
       </div>
+      ) : null}
 
       {/* Main Weekly Schedule Grid (Tuesday to Monday) - Responsive without horizontal scrollbar */}
       <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden w-full">
@@ -508,6 +548,9 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                 </th>
                 {semanaInfo.dias.map((d) => {
                   const isEmDestaque = dataDestaque === d.data;
+                  const hojeStr = getTodayString();
+                  const statusDia = obterStatusDiaEscala(d.data, hojeStr);
+
                   return (
                     <th
                       key={d.data}
@@ -520,11 +563,22 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                       }`}
                     >
                       <div className="text-[11px] font-extrabold leading-tight">{d.diaSemanaNome}</div>
-                      {isEmDestaque && (
-                        <span className="inline-block mt-0.5 text-[8px] bg-amber-500 text-slate-950 font-black px-1 py-0 rounded uppercase tracking-tighter shadow-xs">
-                          Foco
-                        </span>
-                      )}
+                      <div className="flex items-center justify-center gap-1 mt-0.5">
+                        {statusDia === "concluida" ? (
+                          <span className="text-[8px] bg-emerald-500/20 text-emerald-300 font-extrabold px-1 py-0.2 rounded border border-emerald-500/30 uppercase">
+                            Concluída
+                          </span>
+                        ) : (
+                          <span className="text-[8px] bg-blue-500/20 text-blue-300 font-extrabold px-1 py-0.2 rounded border border-blue-500/30 uppercase">
+                            Aberta
+                          </span>
+                        )}
+                        {isEmDestaque && (
+                          <span className="inline-block text-[8px] bg-amber-500 text-slate-950 font-black px-1 py-0 rounded uppercase tracking-tighter shadow-xs">
+                            Foco
+                          </span>
+                        )}
+                      </div>
                     </th>
                   );
                 })}
@@ -628,9 +682,13 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                       >
                         {militarAlocado ? (
                           <div className="bg-slate-950 text-white rounded-lg p-1.5 shadow-md border border-slate-800 space-y-1 group relative">
-                            {/* Badges for Permuta / Ajuste */}
+                            {/* Badges for Status / Permuta / Ajuste */}
                             <div className="flex items-center justify-between gap-0.5 text-[9px]">
-                              {itemEscala?.isPermuta ? (
+                              {dataStr < getTodayString() || itemEscala?.status === "concluida" ? (
+                                <span className="bg-emerald-950/80 text-emerald-300 font-extrabold px-1 py-0.5 rounded border border-emerald-700/60 flex items-center gap-0.5 truncate">
+                                  <CheckCircle2 className="w-2.5 h-2.5 shrink-0 text-emerald-400" /> CONCLUÍDA
+                                </span>
+                              ) : itemEscala?.isPermuta ? (
                                 <span className="bg-purple-500/20 text-purple-300 font-extrabold px-1 py-0.5 rounded border border-purple-500/30 flex items-center gap-0.5 truncate">
                                   <ArrowLeftRight className="w-2.5 h-2.5 shrink-0" /> PERMUTA
                                 </span>
@@ -639,7 +697,9 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                                   <RefreshCw className="w-2.5 h-2.5 shrink-0" /> AJUSTADO
                                 </span>
                               ) : (
-                                <span className="text-blue-400 font-bold text-[9px]">ESCALADO</span>
+                                <span className="bg-blue-950/60 text-blue-300 font-extrabold px-1 py-0.5 rounded border border-blue-800/60 flex items-center gap-0.5 truncate">
+                                  <Sparkles className="w-2.5 h-2.5 shrink-0 text-blue-400" /> ABERTA
+                                </span>
                               )}
 
                               <span className="font-mono text-slate-400 text-[8.5px] shrink-0">
@@ -675,34 +735,41 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                               </div>
                             )}
 
-                            {/* Action Buttons */}
-                            <div className="flex items-center gap-1 pt-1 border-t border-slate-800/80 text-[9px]">
-                              <button
-                                onClick={() => onAbrirPermuta(itemEscala!)}
-                                className="flex-1 bg-slate-900 hover:bg-slate-800 text-slate-200 py-1 px-1 rounded text-[9px] font-semibold transition-colors flex items-center justify-center gap-0.5 cursor-pointer border border-slate-800 truncate"
-                                title="Troca de Serviço com Sigadoc"
-                              >
-                                <ArrowLeftRight className="w-2.5 h-2.5 text-purple-400 shrink-0" />
-                                <span>Permuta</span>
-                              </button>
+                            {/* Action Buttons (Comandante only) */}
+                            {isComandante ? (
+                              <div className="flex items-center gap-1 pt-1 border-t border-slate-800/80 text-[9px]">
+                                <button
+                                  onClick={() => onAbrirPermuta(itemEscala!)}
+                                  className="flex-1 bg-slate-900 hover:bg-slate-800 text-slate-200 py-1 px-1 rounded text-[9px] font-semibold transition-colors flex items-center justify-center gap-0.5 cursor-pointer border border-slate-800 truncate"
+                                  title="Troca de Serviço com Sigadoc"
+                                >
+                                  <ArrowLeftRight className="w-2.5 h-2.5 text-purple-400 shrink-0" />
+                                  <span>Permuta</span>
+                                </button>
 
-                              <button
-                                onClick={() => onAbrirAjuste(itemEscala!)}
-                                className="flex-1 bg-slate-900 hover:bg-slate-800 text-slate-200 py-1 px-1 rounded text-[9px] font-semibold transition-colors flex items-center justify-center gap-0.5 cursor-pointer border border-slate-800 truncate"
-                                title="Ajuste Oficial de Escala"
-                              >
-                                <RefreshCw className="w-2.5 h-2.5 text-amber-400 shrink-0" />
-                                <span>Ajuste</span>
-                              </button>
+                                <button
+                                  onClick={() => onAbrirAjuste(itemEscala!)}
+                                  className="flex-1 bg-slate-900 hover:bg-slate-800 text-slate-200 py-1 px-1 rounded text-[9px] font-semibold transition-colors flex items-center justify-center gap-0.5 cursor-pointer border border-slate-800 truncate"
+                                  title="Ajuste Oficial de Escala"
+                                >
+                                  <RefreshCw className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                                  <span>Ajuste</span>
+                                </button>
 
-                              <button
-                                onClick={() => handleRemoverEscala(itemEscala!.id)}
-                                className="bg-slate-900 hover:bg-rose-950/80 text-rose-400 hover:text-rose-200 p-1 rounded text-[9px] font-semibold transition-colors flex items-center justify-center cursor-pointer border border-slate-800 hover:border-rose-800 shrink-0"
-                                title="Excluir / Desescalar policial deste posto"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
+                                <button
+                                  onClick={() => handleRemoverEscala(itemEscala!.id)}
+                                  className="bg-slate-900 hover:bg-rose-950/80 text-rose-400 hover:text-rose-200 p-1 rounded text-[9px] font-semibold transition-colors flex items-center justify-center cursor-pointer border border-slate-800 hover:border-rose-800 shrink-0"
+                                  title="Excluir / Desescalar policial deste posto"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center gap-1 pt-1 border-t border-slate-800/80 text-[9px] text-slate-400 font-bold">
+                                <Lock className="w-2.5 h-2.5 text-slate-500 shrink-0" />
+                                <span>Escala Fixada</span>
+                              </div>
+                            )}
                           </div>
                         ) : itemEscala && itemEscala.militarId === "REFORCO_EXTRAORDINARIO" ? (
                           <div className="bg-amber-950/80 border border-amber-600/80 text-amber-200 rounded-lg p-1.5 shadow-md space-y-1 group relative">
@@ -721,30 +788,37 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                               </p>
                             </div>
 
-                            <div className="flex items-center gap-1 pt-1 border-t border-amber-800/80 text-[9px]">
-                              <button
-                                onClick={() => onAbrirAjuste(itemEscala)}
-                                className="flex-1 bg-amber-900/80 hover:bg-amber-800 text-amber-100 py-1 px-1 rounded text-[9px] font-bold transition-colors flex items-center justify-center gap-0.5 cursor-pointer border border-amber-700 truncate"
-                                title="Alocar / Nomear Policial Militar Específico"
-                              >
-                                <RefreshCw className="w-2.5 h-2.5 text-amber-300 shrink-0" />
-                                <span>Alocar PM</span>
-                              </button>
+                            {isComandante ? (
+                              <div className="flex items-center gap-1 pt-1 border-t border-amber-800/80 text-[9px]">
+                                <button
+                                  onClick={() => onAbrirAjuste(itemEscala)}
+                                  className="flex-1 bg-amber-900/80 hover:bg-amber-800 text-amber-100 py-1 px-1 rounded text-[9px] font-bold transition-colors flex items-center justify-center gap-0.5 cursor-pointer border border-amber-700 truncate"
+                                  title="Alocar / Nomear Policial Militar Específico"
+                                >
+                                  <RefreshCw className="w-2.5 h-2.5 text-amber-300 shrink-0" />
+                                  <span>Alocar PM</span>
+                                </button>
 
-                              <button
-                                onClick={() => handleRemoverEscala(itemEscala.id)}
-                                className="bg-amber-900/80 hover:bg-rose-950/80 text-rose-300 hover:text-rose-100 p-1 rounded text-[9px] font-bold transition-colors flex items-center justify-center cursor-pointer border border-amber-700 hover:border-rose-800 shrink-0"
-                                title="Remover Reforço Extraordinário deste Posto"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
+                                <button
+                                  onClick={() => handleRemoverEscala(itemEscala.id)}
+                                  className="bg-amber-900/80 hover:bg-rose-950/80 text-rose-300 hover:text-rose-100 p-1 rounded text-[9px] font-bold transition-colors flex items-center justify-center cursor-pointer border border-amber-700 hover:border-rose-800 shrink-0"
+                                  title="Remover Reforço Extraordinário deste Posto"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center gap-1 pt-1 border-t border-amber-800/80 text-[9px] text-amber-300 font-bold">
+                                <Lock className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                                <span>Reforço Fixado</span>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           /* Empty slot with Seniority Suggestion badge */
-                          <div className="border-2 border-dashed border-slate-800 hover:border-blue-500/60 rounded-xl p-2 min-h-[90px] flex flex-col items-center justify-between transition-colors text-center cursor-pointer group bg-slate-950/30">
-                            <span className="text-[10px] font-semibold text-slate-500 group-hover:text-blue-400">
-                              Arraste para alocar
+                          <div className="border-2 border-dashed border-slate-800 rounded-xl p-2 min-h-[90px] flex flex-col items-center justify-between transition-colors text-center bg-slate-950/30">
+                            <span className="text-[10px] font-semibold text-slate-500">
+                              {isComandante ? "Arraste para alocar" : "Vago"}
                             </span>
 
                             {sugestao.sugerido && (
