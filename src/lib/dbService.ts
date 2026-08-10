@@ -1,4 +1,4 @@
-import { doc, setDoc, getDoc, onSnapshot } from "firebase/firestore";
+import { doc, setDoc, onSnapshot, disableNetwork } from "firebase/firestore";
 import { db } from "./firebase";
 import {
   UnidadeTenant,
@@ -10,6 +10,7 @@ import {
 } from "../types";
 
 const COLLECTION_NAME = "app_data";
+const QUOTA_KEY = "firestore_quota_exceeded_v2";
 
 export interface AppDatabaseState {
   unidades: UnidadeTenant[];
@@ -20,10 +21,76 @@ export interface AppDatabaseState {
   usuarios: UsuarioAuth[];
 }
 
-// In-memory serialized cache to prevent feedback loops between Firestore snapshot listeners and local state updates
+// In-memory serialized cache to prevent feedback loops
 const lastCache: Record<string, string> = {};
 const writeTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+
 let isQuotaExceeded = false;
+
+// Check stored quota status on load
+try {
+  if (typeof localStorage !== "undefined") {
+    const stored = localStorage.getItem(QUOTA_KEY);
+    if (stored) {
+      const timestamp = parseInt(stored, 10);
+      // Reset after 12 hours (43,200,000 ms) to check if quota restored
+      if (Date.now() - timestamp < 12 * 60 * 60 * 1000) {
+        isQuotaExceeded = true;
+        disableNetwork(db).catch(() => {});
+      } else {
+        localStorage.removeItem(QUOTA_KEY);
+      }
+    }
+  }
+} catch (_) {}
+
+function markQuotaExceeded() {
+  if (!isQuotaExceeded) {
+    isQuotaExceeded = true;
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(QUOTA_KEY, Date.now().toString());
+      }
+    } catch (_) {}
+    try {
+      disableNetwork(db).catch(() => {});
+    } catch (_) {}
+    console.warn(
+      "Firestore quota limit reached. Network sync disabled; system operating safely via local storage."
+    );
+  }
+}
+
+// Global window unhandled error & rejection listener for Firebase resource-exhausted errors
+if (typeof window !== "undefined") {
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = event.reason;
+    if (
+      reason?.code === "resource-exhausted" ||
+      (reason?.message &&
+        (reason.message.includes("resource-exhausted") ||
+          reason.message.includes("Quota limit exceeded") ||
+          reason.message.includes("quota")))
+    ) {
+      markQuotaExceeded();
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  });
+
+  window.addEventListener("error", (event) => {
+    if (
+      event.message &&
+      (event.message.includes("resource-exhausted") ||
+        event.message.includes("Quota limit exceeded") ||
+        event.message.includes("quota"))
+    ) {
+      markQuotaExceeded();
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  });
+}
 
 /**
  * Save collection items to Firestore safely with debouncing and error handling.
@@ -34,7 +101,6 @@ export async function saveCollectionToFirestore<T>(
   data: T[]
 ): Promise<void> {
   if (isQuotaExceeded) {
-    // Quota reached on Firestore free tier; operational data remains safely persisted in LocalStorage
     return;
   }
 
@@ -47,7 +113,6 @@ export async function saveCollectionToFirestore<T>(
   }
 
   if (lastCache[key] === serialized) {
-    // Data is identical to what is already stored/received; skip write
     return;
   }
 
@@ -56,12 +121,12 @@ export async function saveCollectionToFirestore<T>(
     clearTimeout(writeTimers[key]);
   }
 
-  // Debounce writes by 1000ms
+  // Debounce writes by 2000ms to minimize API calls
   writeTimers[key] = setTimeout(async () => {
     if (isQuotaExceeded) return;
-    lastCache[key] = serialized;
 
     try {
+      lastCache[key] = serialized;
       const docRef = doc(db, COLLECTION_NAME, key);
       await setDoc(docRef, {
         items: data,
@@ -70,28 +135,31 @@ export async function saveCollectionToFirestore<T>(
     } catch (error: any) {
       if (
         error?.code === "resource-exhausted" ||
-        (error?.message && error.message.includes("resource-exhausted"))
+        (error?.message &&
+          (error.message.includes("resource-exhausted") ||
+            error.message.includes("Quota limit exceeded") ||
+            error.message.includes("quota")))
       ) {
-        if (!isQuotaExceeded) {
-          isQuotaExceeded = true;
-          console.warn("Firestore write quota reached. System falling back to local storage seamless persistence.");
-        }
+        markQuotaExceeded();
       } else {
         console.error(`Error saving ${key} to Firestore:`, error);
       }
     }
-  }, 1000);
+  }, 2000);
 }
 
 /**
  * Subscribe to real-time updates for a given collection from Firestore.
- * If the document doesn't exist in Firestore, initializes it with local initial items.
  */
 export function subscribeToCollection<T>(
   key: keyof AppDatabaseState,
   initialLocalItems: T[],
   onUpdate: (items: T[]) => void
 ): () => void {
+  if (isQuotaExceeded) {
+    return () => {};
+  }
+
   const docRef = doc(db, COLLECTION_NAME, key);
 
   // Seed lastCache with initial items if not set
@@ -99,56 +167,62 @@ export function subscribeToCollection<T>(
     lastCache[key] = JSON.stringify(initialLocalItems);
   }
 
-  const unsubscribe = onSnapshot(
-    docRef,
-    (docSnap) => {
-      // Ignore local pending writes to avoid echoing back local state updates
-      if (docSnap.metadata.hasPendingWrites) {
-        return;
-      }
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data && Array.isArray(data.items)) {
-          const serializedRemote = JSON.stringify(data.items);
-          if (lastCache[key] !== serializedRemote) {
-            lastCache[key] = serializedRemote;
-            onUpdate(data.items as T[]);
-          }
-        }
-      } else if (!isQuotaExceeded) {
-        // Document does not exist yet on Firestore, seed it with initial items
-        if (initialLocalItems && initialLocalItems.length > 0) {
-          const serializedInitial = JSON.stringify(initialLocalItems);
-          if (lastCache[key] !== serializedInitial) {
-            lastCache[key] = serializedInitial;
-            setDoc(docRef, {
-              items: initialLocalItems,
-              updatedAt: new Date().toISOString()
-            }).catch((err: any) => {
-              if (
-                err?.code === "resource-exhausted" ||
-                (err?.message && err.message.includes("resource-exhausted"))
-              ) {
-                isQuotaExceeded = true;
-              } else {
-                console.error(`Error seeding ${key} to Firestore:`, err);
-              }
-            });
-          }
-        }
-      }
-    },
-    (error: any) => {
-      if (
-        error?.code === "resource-exhausted" ||
-        (error?.message && error.message.includes("resource-exhausted"))
-      ) {
-        isQuotaExceeded = true;
-      } else {
-        console.warn(`Firestore subscription notice for ${key}:`, error);
-      }
-    }
-  );
+  let unsub: (() => void) | null = null;
 
-  return unsubscribe;
+  try {
+    unsub = onSnapshot(
+      docRef,
+      (docSnap) => {
+        if (isQuotaExceeded) return;
+        if (docSnap.metadata.hasPendingWrites) {
+          return;
+        }
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data && Array.isArray(data.items)) {
+            const serializedRemote = JSON.stringify(data.items);
+            if (lastCache[key] !== serializedRemote) {
+              lastCache[key] = serializedRemote;
+              onUpdate(data.items as T[]);
+            }
+          }
+        }
+      },
+      (error: any) => {
+        if (
+          error?.code === "resource-exhausted" ||
+          (error?.message &&
+            (error.message.includes("resource-exhausted") ||
+              error.message.includes("Quota limit exceeded") ||
+              error.message.includes("quota")))
+        ) {
+          markQuotaExceeded();
+          if (unsub) {
+            try {
+              unsub();
+            } catch (_) {}
+          }
+        }
+      }
+    );
+  } catch (err: any) {
+    if (
+      err?.code === "resource-exhausted" ||
+      (err?.message &&
+        (err.message.includes("resource-exhausted") ||
+          err.message.includes("Quota limit exceeded") ||
+          err.message.includes("quota")))
+    ) {
+      markQuotaExceeded();
+    }
+  }
+
+  return () => {
+    if (unsub) {
+      try {
+        unsub();
+      } catch (_) {}
+    }
+  };
 }
+
