@@ -7,7 +7,7 @@ import {
   Afastamento,
   ItemConflito
 } from "../types";
-import { obterTodosConflitosEscala, formatDateBr } from "../utils/rulesEngine";
+import { obterTodosConflitosEscala, formatDateBr, obterStatusDiaEscala } from "../utils/rulesEngine";
 import {
   AlertTriangle,
   ShieldAlert,
@@ -50,9 +50,11 @@ export const ConflictsManager: React.FC<ConflictsManagerProps> = ({
   const [searchTerm, setSearchTerm] = useState("");
   const [tipoFiltro, setTipoFiltro] = useState<"TODOS" | "CRITICO" | "ALERTA_72H" | "ALERTA_96H" | "AFASTAMENTO">("TODOS");
 
-  // Compute all conflicts dynamically
+  // Compute all conflicts dynamically (filtering out finalized/completed scales)
   const todosConflitos = useMemo(() => {
-    return obterTodosConflitosEscala(unidade.id, escalas, militares, postos, afastamentos);
+    return obterTodosConflitosEscala(unidade.id, escalas, militares, postos, afastamentos).filter(
+      (c) => c.escalaItem.status !== "concluida" && obterStatusDiaEscala(c.data) !== "concluida"
+    );
   }, [unidade.id, escalas, militares, postos, afastamentos]);
 
   // Statistics

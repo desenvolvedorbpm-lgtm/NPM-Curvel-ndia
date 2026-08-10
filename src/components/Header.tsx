@@ -126,11 +126,13 @@ export const Header: React.FC<HeaderProps> = ({
               }}
               className="bg-transparent text-slate-200 text-xs font-semibold focus:outline-none cursor-pointer"
             >
-              {unidades.map((u) => (
-                <option key={u.id} value={u.id} className="bg-slate-900 text-white">
-                  {u.sigla} - {u.nome}
-                </option>
-              ))}
+              {unidades
+                .filter((u) => u.id !== "17-bpm-mirassol" && !u.nome.toLowerCase().includes("mirassol"))
+                .map((u) => (
+                  <option key={u.id} value={u.id} className="bg-slate-900 text-white">
+                    {u.sigla} - {u.nome}
+                  </option>
+                ))}
             </select>
           </div>
 

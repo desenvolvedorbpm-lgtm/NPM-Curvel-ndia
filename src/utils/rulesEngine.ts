@@ -878,6 +878,9 @@ export function obterTodosConflitosEscala(
   for (const item of escalasUnidade) {
     if (item.militarId === "REFORCO_EXTRAORDINARIO" || item.militarId === "VAZIO") continue;
 
+    // Conflitos aplicam-se apenas a escalas em andamento/futuras (não concluídas)
+    if (item.status === "concluida" || obterStatusDiaEscala(item.data) === "concluida") continue;
+
     const militar = militares.find((m) => m.id === item.militarId);
     const posto = postos.find((p) => p.id === item.postoId);
 

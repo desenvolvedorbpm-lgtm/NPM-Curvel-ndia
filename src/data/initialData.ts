@@ -31,31 +31,6 @@ export const UNIDADES_INICIAIS: UnidadeTenant[] = [
       segundaFimTarde: "18:00",
       diasSemana: [1, 2, 3, 4, 5]
     }
-  },
-  {
-    id: "17-bpm-mirassol",
-    nome: "17º BATALHÃO DE POLÍCIA MILITAR - MIRASSOL D'OESTE",
-    sigla: "17º BPM",
-    cabecalho: {
-      governo: "Governo de Mato Grosso",
-      secretaria: "POLÍCIA MILITAR DO ESTADO DE MATO GROSSO",
-      corporacao: "6º COMANDO REGIONAL",
-      comandoRegional: "17º BPM - MIRASSOL D'OESTE",
-      batalhao: "ESTADO DE MATO GROSSO / POLÍCIA MILITAR",
-      unidade: "17º BATALHÃO DE POLÍCIA MILITAR",
-      informativoNumero: "102/2026 17º BPM",
-      comandanteBpm: "Maj PM Costa Soares",
-      comandanteNpm: "Cap PM Silva",
-      determinacoesPadrao: [
-        "1. INTENSIFICAR PATRULHAMENTO NO CENTRO E ÁREAS BANCÁRIAS.",
-        "2. MANTER ATENÇÃO AO PROTOCOLO DE ABORDAGEM PMMT."
-      ]
-    },
-    horarioExpediente: {
-      inicio: "07:30",
-      fim: "13:30",
-      diasSemana: [1, 2, 3, 4, 5]
-    }
   }
 ];
 

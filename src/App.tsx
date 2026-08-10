@@ -95,10 +95,29 @@ function getInitialUsuarios(militaresList: Militar[]): UsuarioAuth[] {
 
 export default function App() {
   // Master State with Persistent LocalStorage
-  const [unidades, setUnidades] = useState<UnidadeTenant[]>(() =>
-    getStoredData(LS_KEYS.UNIDADES, UNIDADES_INICIAIS)
-  );
-  const [unidadeAtual, setUnidadeAtual] = useState<UnidadeTenant>(() => unidades[0] || UNIDADES_INICIAIS[0]);
+  const [unidades, setUnidades] = useState<UnidadeTenant[]>(() => {
+    const stored = getStoredData(LS_KEYS.UNIDADES, UNIDADES_INICIAIS);
+    const valid = stored.filter(
+      (u) => u.id !== "17-bpm-mirassol" && !u.nome.toLowerCase().includes("mirassol")
+    );
+    return valid.length > 0 ? valid : UNIDADES_INICIAIS;
+  });
+  const [unidadeAtual, setUnidadeAtual] = useState<UnidadeTenant>(() => {
+    const valid = unidades.filter(
+      (u) => u.id !== "17-bpm-mirassol" && !u.nome.toLowerCase().includes("mirassol")
+    );
+    return valid[0] || UNIDADES_INICIAIS[0];
+  });
+
+  React.useEffect(() => {
+    if (
+      unidadeAtual &&
+      (unidadeAtual.id === "17-bpm-mirassol" ||
+        unidadeAtual.nome.toLowerCase().includes("mirassol"))
+    ) {
+      if (unidades[0]) setUnidadeAtual(unidades[0]);
+    }
+  }, [unidadeAtual, unidades]);
 
   const [postos, setPostos] = useState<PostoServico[]>(() =>
     getStoredData(LS_KEYS.POSTOS, POSTOS_INICIAIS)
@@ -166,8 +185,11 @@ export default function App() {
 
   // Real-time Firestore Subscriptions
   React.useEffect(() => {
-    const unsubUnidades = subscribeToCollection("unidades", unidades, (items) => {
-      setUnidades(items);
+    const unsubUnidades = subscribeToCollection<UnidadeTenant>("unidades", unidades, (items) => {
+      const valid = items.filter(
+        (u) => u.id !== "17-bpm-mirassol" && !u.nome.toLowerCase().includes("mirassol")
+      );
+      setUnidades(valid.length > 0 ? valid : UNIDADES_INICIAIS);
     });
     const unsubPostos = subscribeToCollection("postos", postos, (items) => {
       setPostos(items);
