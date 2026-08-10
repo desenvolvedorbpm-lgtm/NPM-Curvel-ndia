@@ -9,7 +9,6 @@ import {
   RotateCcw,
   CheckCircle2,
   AlertTriangle,
-  Info,
   Eye,
   EyeOff
 } from "lucide-react";
@@ -276,12 +275,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     type="text"
                     value={inputRg}
                     onChange={(e) => setInputRg(e.target.value)}
-                    placeholder="Ex: 880.819 ou admin"
+                    placeholder="Ex: 880.819"
                     autoFocus
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 font-mono font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
                   />
                   <span className="text-[10px] text-slate-500 block">
-                    Digite o número do seu RGPMMT (ex: 880819) ou &apos;admin&apos; para o perfil Administrador.
+                    Digite o número do seu RGPMMT (ex: 880819).
                   </span>
                 </div>
 
@@ -331,91 +330,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   <span>Entrar no Sistema</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
-
-                {/* Quick Profile Access Buttons */}
-                <div className="pt-3 border-t border-slate-800/80 space-y-2.5">
-                  <div className="flex items-center gap-1.5 font-extrabold text-[11px] text-slate-300 uppercase tracking-wider">
-                    <Shield className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Selecione o Perfil de Acesso:</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {/* Comandante Card */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const cmt = usuarios.find((u) => normalizeUser(u.username) === "comandante" || normalizeUser(u.username) === "admin") || {
-                          id: "user-comandante",
-                          username: "comandante",
-                          role: "comandante" as const,
-                          password: "123456",
-                          primeiroAcesso: false,
-                          nomeDisplay: "Comandante da Unidade"
-                        };
-                        onLoginSuccess({ ...cmt, role: "comandante", primeiroAcesso: false });
-                      }}
-                      className="p-3 bg-amber-950/30 hover:bg-amber-900/40 text-amber-100 rounded-xl border border-amber-500/40 hover:border-amber-400 text-left transition-all shadow-md group cursor-pointer active:scale-95 flex flex-col justify-between space-y-1.5"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-extrabold text-xs text-amber-300 flex items-center gap-1">
-                          <Shield className="w-3.5 h-3.5 text-amber-400" />
-                          Comandante
-                        </span>
-                        <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.2 rounded font-black border border-amber-500/30 uppercase">
-                          Acesso Total
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-amber-200/80 leading-tight">
-                        Acesso total: projetar, resetar, ajustes, postos, efetivo e configurações.
-                      </p>
-                    </button>
-
-                    {/* Operador Card */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const op = usuarios.find((u) => normalizeUser(u.username) === "operador") || {
-                          id: "user-operador",
-                          username: "operador",
-                          role: "operador" as const,
-                          password: "123456",
-                          primeiroAcesso: false,
-                          nomeDisplay: "Operador de Escala (Consulta)"
-                        };
-                        onLoginSuccess({ ...op, role: "operador", primeiroAcesso: false });
-                      }}
-                      className="p-3 bg-blue-950/30 hover:bg-blue-900/40 text-blue-100 rounded-xl border border-blue-500/40 hover:border-blue-400 text-left transition-all shadow-md group cursor-pointer active:scale-95 flex flex-col justify-between space-y-1.5"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-extrabold text-xs text-blue-300 flex items-center gap-1">
-                          <Eye className="w-3.5 h-3.5 text-blue-400" />
-                          Operador
-                        </span>
-                        <span className="text-[9px] bg-blue-500/20 text-blue-300 px-1.5 py-0.2 rounded font-black border border-blue-500/30 uppercase">
-                          Consulta & PDF
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-blue-200/80 leading-tight">
-                        Consulta a escala semanal, projeção mensal e download do PDF oficial.
-                      </p>
-                    </button>
-                  </div>
-
-                  <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-[10.5px] text-slate-400 space-y-1">
-                    <div className="flex items-center gap-1.5 font-bold text-slate-300">
-                      <Info className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                      <span>Credenciais de Acesso Direto:</span>
-                    </div>
-                    <ul className="list-disc list-inside space-y-0.5 text-[10px] font-mono text-slate-400 pl-1">
-                      <li>
-                        <strong>Comandante:</strong> login: <code className="text-amber-300">comandante</code> (ou <code className="text-amber-300">admin</code>) | senha: <code className="text-amber-300">123456</code>
-                      </li>
-                      <li>
-                        <strong>Operador:</strong> login: <code className="text-blue-300">operador</code> (ou RGPMMT <code className="text-blue-300">880.819</code>) | senha: <code className="text-blue-300">123456</code>
-                      </li>
-                    </ul>
-                  </div>
-                </div>
               </form>
             )}
 
@@ -503,7 +417,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     type="text"
                     value={recoveryRg}
                     onChange={(e) => setRecoveryRg(e.target.value)}
-                    placeholder="Ex: 880.819 ou admin"
+                    placeholder="Ex: 880.819"
                     autoFocus
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 font-mono font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
                   />

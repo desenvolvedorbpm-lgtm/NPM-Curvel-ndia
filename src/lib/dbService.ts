@@ -22,32 +22,65 @@ export interface AppDatabaseState {
 
 // In-memory serialized cache to prevent feedback loops between Firestore snapshot listeners and local state updates
 const lastCache: Record<string, string> = {};
+const writeTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+let isQuotaExceeded = false;
 
 /**
- * Save collection items to Firestore safely.
+ * Save collection items to Firestore safely with debouncing and error handling.
  * Only writes to Firestore if the data actually changed compared to the last cached snapshot.
  */
 export async function saveCollectionToFirestore<T>(
   key: keyof AppDatabaseState,
   data: T[]
 ): Promise<void> {
-  try {
-    const serialized = JSON.stringify(data);
-    if (lastCache[key] === serialized) {
-      // Data is identical to what is already stored/received; skip write
-      return;
-    }
+  if (isQuotaExceeded) {
+    // Quota reached on Firestore free tier; operational data remains safely persisted in LocalStorage
+    return;
+  }
 
+  const serialized = JSON.stringify(data);
+
+  // If first run and cache is empty, seed lastCache to prevent immediate startup write burst
+  if (lastCache[key] === undefined) {
+    lastCache[key] = serialized;
+    return;
+  }
+
+  if (lastCache[key] === serialized) {
+    // Data is identical to what is already stored/received; skip write
+    return;
+  }
+
+  // Clear existing debounce timer if any
+  if (writeTimers[key]) {
+    clearTimeout(writeTimers[key]);
+  }
+
+  // Debounce writes by 1000ms
+  writeTimers[key] = setTimeout(async () => {
+    if (isQuotaExceeded) return;
     lastCache[key] = serialized;
 
-    const docRef = doc(db, COLLECTION_NAME, key);
-    await setDoc(docRef, {
-      items: data,
-      updatedAt: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error(`Error saving ${key} to Firestore:`, error);
-  }
+    try {
+      const docRef = doc(db, COLLECTION_NAME, key);
+      await setDoc(docRef, {
+        items: data,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (error: any) {
+      if (
+        error?.code === "resource-exhausted" ||
+        (error?.message && error.message.includes("resource-exhausted"))
+      ) {
+        if (!isQuotaExceeded) {
+          isQuotaExceeded = true;
+          console.warn("Firestore write quota reached. System falling back to local storage seamless persistence.");
+        }
+      } else {
+        console.error(`Error saving ${key} to Firestore:`, error);
+      }
+    }
+  }, 1000);
 }
 
 /**
@@ -60,6 +93,11 @@ export function subscribeToCollection<T>(
   onUpdate: (items: T[]) => void
 ): () => void {
   const docRef = doc(db, COLLECTION_NAME, key);
+
+  // Seed lastCache with initial items if not set
+  if (lastCache[key] === undefined && initialLocalItems) {
+    lastCache[key] = JSON.stringify(initialLocalItems);
+  }
 
   const unsubscribe = onSnapshot(
     docRef,
@@ -77,7 +115,7 @@ export function subscribeToCollection<T>(
             onUpdate(data.items as T[]);
           }
         }
-      } else {
+      } else if (!isQuotaExceeded) {
         // Document does not exist yet on Firestore, seed it with initial items
         if (initialLocalItems && initialLocalItems.length > 0) {
           const serializedInitial = JSON.stringify(initialLocalItems);
@@ -86,13 +124,29 @@ export function subscribeToCollection<T>(
             setDoc(docRef, {
               items: initialLocalItems,
               updatedAt: new Date().toISOString()
-            }).catch((err) => console.error(`Error seeding ${key} to Firestore:`, err));
+            }).catch((err: any) => {
+              if (
+                err?.code === "resource-exhausted" ||
+                (err?.message && err.message.includes("resource-exhausted"))
+              ) {
+                isQuotaExceeded = true;
+              } else {
+                console.error(`Error seeding ${key} to Firestore:`, err);
+              }
+            });
           }
         }
       }
     },
-    (error) => {
-      console.warn(`Firestore subscription notice for ${key}:`, error);
+    (error: any) => {
+      if (
+        error?.code === "resource-exhausted" ||
+        (error?.message && error.message.includes("resource-exhausted"))
+      ) {
+        isQuotaExceeded = true;
+      } else {
+        console.warn(`Firestore subscription notice for ${key}:`, error);
+      }
     }
   );
 
