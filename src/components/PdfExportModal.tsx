@@ -91,43 +91,58 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
         {/* Posts Table */}
         <table className="w-full text-left border-collapse">
           <tbody>
-            {postosUnidade.map((posto, idx) => {
-              const slot = escalaDia.find((e) => e.postoId === posto.id);
-              const m = slot ? militares.find((item) => item.id === slot.militarId) : null;
+            {(() => {
+              const postosFiltrados = postosUnidade.filter((posto) => {
+                if (posto.tipoHorario === "expediente" && diaObj.isFimDeSemana) return false;
+                const slot = escalaDia.find((e) => e.postoId === posto.id);
+                const m = slot ? militares.find((item) => item.id === slot.militarId) : null;
+                const isReforco = slot?.militarId === "REFORCO_EXTRAORDINARIO";
+                return Boolean(m || isReforco);
+              });
 
-              // Skip expediente on weekends
-              if (posto.tipoHorario === "expediente" && diaObj.isFimDeSemana) return null;
+              if (postosFiltrados.length === 0) {
+                return (
+                  <tr className="border-b border-black text-center" style={{ borderColor: "#000000" }}>
+                    <td colSpan={3} className="p-2 italic text-slate-500 font-normal text-[10px]">
+                      Sem serviço/militar escalado para esta data.
+                    </td>
+                  </tr>
+                );
+              }
 
-              return (
-                <tr
-                  key={posto.id}
-                  className="border-b last:border-b-0 border-black"
-                  style={{
-                    borderColor: "#000000",
-                    backgroundColor: idx % 2 === 0 ? "#ffffff" : "#fcfcfc"
-                  }}
-                >
-                  <td
-                    className="p-1.5 font-bold w-1/3 uppercase text-[10px] border-r border-black"
-                    style={{ borderColor: "#000000", backgroundColor: "#f8fafc" }}
+              return postosFiltrados.map((posto, idx) => {
+                const slot = escalaDia.find((e) => e.postoId === posto.id);
+                const m = slot ? militares.find((item) => item.id === slot.militarId) : null;
+
+                return (
+                  <tr
+                    key={posto.id}
+                    className="border-b last:border-b-0 border-black"
+                    style={{
+                      borderColor: "#000000",
+                      backgroundColor: idx % 2 === 0 ? "#ffffff" : "#fcfcfc"
+                    }}
                   >
-                    {posto.sigla}
-                  </td>
-                  <td className="p-1.5 w-1/2 font-bold uppercase border-r border-black" style={{ borderColor: "#000000" }}>
-                    {m ? (
-                      `${m.graduacao} ${m.nomeGuerra}`
-                    ) : slot?.militarId === "REFORCO_EXTRAORDINARIO" ? (
-                      "REFORÇO EXTRAORDINÁRIO"
-                    ) : (
-                      "----------------"
-                    )}
-                  </td>
-                  <td className="p-1.5 w-1/4 font-mono font-bold text-right uppercase">
-                    {m ? `RG ${m.rgPmmt}` : "----------"}
-                  </td>
-                </tr>
-              );
-            })}
+                    <td
+                      className="p-1.5 font-bold w-1/3 uppercase text-[10px] border-r border-black"
+                      style={{ borderColor: "#000000", backgroundColor: "#f8fafc" }}
+                    >
+                      {posto.sigla}
+                    </td>
+                    <td className="p-1.5 w-1/2 font-bold uppercase border-r border-black" style={{ borderColor: "#000000" }}>
+                      {m ? (
+                        `${m.graduacao} ${m.nomeGuerra}`
+                      ) : (
+                        "REFORÇO EXTRAORDINÁRIO"
+                      )}
+                    </td>
+                    <td className="p-1.5 w-1/4 font-mono font-bold text-right uppercase">
+                      {m ? `RG ${m.rgPmmt}` : "----------"}
+                    </td>
+                  </tr>
+                );
+              });
+            })()}
           </tbody>
         </table>
       </div>
