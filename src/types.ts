@@ -99,26 +99,99 @@ export interface Afastamento {
   is_fatiguing: boolean; // false for Férias/Licenças (D+1 zero rest requirement), true for Cursos/Patrulha (mandatory 24h rest)
 }
 
-export type UserRole = "comandante" | "operador" | "admin" | "militar";
+export type UserRole = "comandante" | "operador" | "admin" | "militar" | "custom";
+
+export interface PermissoesPerfil {
+  // Escala Semanal
+  escalaVisualizar: boolean;
+  escalaEditar: boolean; // Arrastar militares, alocar, remover
+  escalaPermuta: boolean; // Realizar permutas SIGADOC
+  escalaAjuste: boolean; // Realizar ajustes de escala
+  escalaPdf: boolean; // Gerar PDF oficial
+  
+  // Projeção Mensal
+  projecaoVisualizar: boolean;
+  projecaoExecutar: boolean; // Gerar projeção automática 30 dias
+  projecaoResetar: boolean; // Resetar projeções futuras
+
+  // Central de Conflitos
+  conflitosVisualizar: boolean;
+
+  // Postos de Serviço
+  postosVisualizar: boolean;
+  postosEditar: boolean; // CRUD de postos
+
+  // Efetivo Militar
+  efetivoVisualizar: boolean;
+  efetivoEditar: boolean; // CRUD de militares e antiguidade
+
+  // Férias e Ausências
+  afastamentosVisualizar: boolean;
+  afastamentosEditar: boolean; // CRUD de afastamentos
+
+  // Cabeçalho e Configurações
+  configuracoesEditar: boolean;
+
+  // Suporte & Perfis de Acesso
+  suporteAcesso: boolean;
+  gerenciarPerfis: boolean;
+  gerenciarUsuarios: boolean;
+}
+
+export interface PerfilAcesso {
+  id: string; // "admin", "comandante", "efetivo", or custom id
+  nome: string; // e.g. "Administrador do Sistema", "Comandante", "Efetivo"
+  descricao: string;
+  corBadge: string; // CSS color classes for badge
+  isSistema?: boolean; // Default system profiles that cannot be deleted
+  permissoes: PermissoesPerfil;
+}
 
 export interface UsuarioAuth {
   id: string; // e.g. "user-comandante", "user-operador", or "user-admin"
-  username: string; // RGPMMT (e.g. "comandante", "operador", "880.819")
-  militarId?: string; // linked militar ID if role === "operador" / "militar"
+  username: string; // RGPMMT (e.g. "comandante", "operador", "admin", "880.819")
+  militarId?: string; // linked militar ID if role === "operador" / "militar" / "efetivo"
   password: string; // password
   primeiroAcesso: boolean; // true if default password or needs reset
   role: UserRole;
+  perfilId: string; // references PerfilAcesso.id ("admin" | "comandante" | "efetivo" | custom)
   nomeDisplay: string;
+  ativo?: boolean;
 }
 
 export function isComandante(user?: UsuarioAuth | null): boolean {
   if (!user) return false;
-  return user.role === "comandante" || user.role === "admin";
+  return user.perfilId === "comandante" || user.perfilId === "admin" || user.role === "comandante" || user.role === "admin";
+}
+
+export function isAdmin(user?: UsuarioAuth | null): boolean {
+  if (!user) return false;
+  return user.perfilId === "admin" || user.role === "admin";
 }
 
 export function isOperador(user?: UsuarioAuth | null): boolean {
   if (!user) return false;
-  return user.role === "operador" || user.role === "militar";
+  return user.perfilId === "efetivo" || user.role === "operador" || user.role === "militar";
+}
+
+export function temPermissao(
+  user: UsuarioAuth | null | undefined,
+  perfis: PerfilAcesso[],
+  permissao: keyof PermissoesPerfil
+): boolean {
+  if (!user) return false;
+  
+  // Super admin always has full permissions
+  if (user.perfilId === "admin" || user.username === "admin") return true;
+
+  const perfil = perfis.find((p) => p.id === user.perfilId);
+  if (!perfil) {
+    // Fallback based on legacy role
+    if (user.role === "admin" || user.role === "comandante") return true;
+    return permissao === "escalaVisualizar" || permissao === "projecaoVisualizar" || permissao === "escalaPdf";
+  }
+
+  return Boolean(perfil.permissoes[permissao]);
 }
 
 export interface EscalaItem {
@@ -179,5 +252,19 @@ export interface ItemConflito {
   data: string;
   alerta: AlertaEscala;
   nivelGravidade: "CRITICO" | "ALERTA" | "OCIOSIDADE";
+}
+
+export interface RegistroFolga96h {
+  id: string;
+  unidadeId: string;
+  militarId: string;
+  dataInicio: string; // "YYYY-MM-DD"
+  dataFim: string; // "YYYY-MM-DD"
+  diasFolga: string[]; // ["2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14"]
+  horasDescanso: number; // e.g. 96, 120
+  motivo: string; // "Folga Regulamentar 96h", "Compensação de Escala", "Adequação de Efetivo 24x72"
+  observacoes?: string;
+  registradoPor?: string;
+  criadoEm: string; // ISO string ou YYYY-MM-DD
 }
 

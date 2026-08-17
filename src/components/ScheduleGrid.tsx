@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Militar,
   PostoServico,
@@ -10,6 +10,7 @@ import {
 } from "../types";
 import {
   getOperationalWeekForDate,
+  getCurrentOperationalTuesday,
   validarRegrasEscala,
   sugerirMilitarParaPosto,
   formatDateBr,
@@ -18,6 +19,7 @@ import {
   calcularInformativoNumero,
   getTodayString,
   obterStatusDiaEscala,
+  isEscalaItemConcluido,
   reajustarHierarquiaGuarnicao
 } from "../utils/rulesEngine";
 import {
@@ -75,17 +77,11 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
   onLimparDestaque,
   isComandante = true
 }) => {
-  // Current Tuesday anchor for operational week (default August 04, 2026)
-  const [dataTercaAtual, setDataTercaAtual] = useState(dataTercaInicial || "2026-08-04");
-
-  React.useEffect(() => {
-    if (dataTercaInicial && dataTercaInicial !== dataTercaAtual) {
-      setDataTercaAtual(dataTercaInicial);
-    }
-  }, [dataTercaInicial]);
+  // Current Tuesday anchor for operational week (defaults to the current operational Tuesday)
+  const tercaAtualSistema = getCurrentOperationalTuesday();
+  const dataTercaAtual = dataTercaInicial || tercaAtualSistema;
 
   const mudarDataTerca = (novaTerca: string) => {
-    setDataTercaAtual(novaTerca);
     if (onSetDataTercaNavegacao) {
       onSetDataTercaNavegacao(novaTerca);
     }
@@ -100,6 +96,8 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
 
   // Drag and Drop State
   const [draggedMilitarId, setDraggedMilitarId] = useState<string | null>(null);
+  const [draggedSourceItemId, setDraggedSourceItemId] = useState<string | null>(null);
+  const [dragOverSlotKey, setDragOverSlotKey] = useState<string | null>(null);
   const [dropFeedback, setDropFeedback] = useState<{
     tipo: "sucesso" | "alerta" | "bloqueio";
     mensagem: string;
@@ -119,52 +117,83 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
   };
 
   const handleSemanaHoje = () => {
-    mudarDataTerca("2026-08-04");
+    mudarDataTerca(getCurrentOperationalTuesday());
   };
 
-  // Week Options for Selector with Dynamic Informativo Numbers
-  const datasSemanasBase = [
-    "2026-08-04",
-    "2026-08-11",
-    "2026-08-18",
-    "2026-08-25",
-    "2026-09-01",
-    "2026-09-08",
-    "2026-09-15",
-    "2026-09-22"
-  ];
+  // Week Options for Selector with Dynamic Informativo Numbers and Current Week highlight
+  const datasSemanasBase = useMemo(() => {
+    const setTercas = new Set<string>();
 
-  const opcoesSemanas = datasSemanasBase.map((dStr) => {
-    const sem = getOperationalWeekForDate(dStr);
-    const inf = calcularInformativoNumero(dStr, unidade.cabecalho.informativoNumero);
-    const numOnly = inf.split(" ")[0];
-    return {
-      label: `Inf. ${numOnly} • ${formatDateBr(sem.dataInicioTerca)} a ${formatDateBr(sem.dataFimSegunda)}`,
-      value: dStr
-    };
-  });
+    // Baseline historical starting week
+    setTercas.add("2026-08-04");
 
-  if (!opcoesSemanas.some((op) => op.value === dataTercaAtual)) {
-    const inf = calcularInformativoNumero(dataTercaAtual, unidade.cabecalho.informativoNumero);
-    const numOnly = inf.split(" ")[0];
-    opcoesSemanas.unshift({
-      label: `Inf. ${numOnly} • ${formatDateBr(semanaInfo.dataInicioTerca)} a ${formatDateBr(semanaInfo.dataFimSegunda)}`,
-      value: dataTercaAtual
+    // Dynamic weeks around the current operational week (-3 weeks to +8 weeks)
+    const curAnchor = new Date(tercaAtualSistema + "T12:00:00");
+    for (let w = -3; w <= 8; w++) {
+      const d = new Date(curAnchor);
+      d.setDate(d.getDate() + w * 7);
+      const sem = getOperationalWeekForDate(d.toISOString().split("T")[0]);
+      setTercas.add(sem.dataInicioTerca);
+    }
+
+    if (dataTercaAtual) {
+      setTercas.add(dataTercaAtual);
+    }
+
+    return Array.from(setTercas).sort();
+  }, [tercaAtualSistema, dataTercaAtual]);
+
+  const opcoesSemanas = useMemo(() => {
+    return datasSemanasBase.map((dStr) => {
+      const sem = getOperationalWeekForDate(dStr);
+      const inf = calcularInformativoNumero(dStr, unidade.cabecalho.informativoNumero);
+      const numOnly = inf.split(" ")[0];
+      const isSemanaAtual = dStr === tercaAtualSistema;
+      return {
+        label: `Inf. ${numOnly} • ${formatDateBr(sem.dataInicioTerca)} a ${formatDateBr(sem.dataFimSegunda)}${isSemanaAtual ? " (Semana Atual)" : ""}`,
+        value: dStr
+      };
     });
-  }
+  }, [datasSemanasBase, unidade.cabecalho.informativoNumero, tercaAtualSistema]);
 
   // Drag Start / End
-  const handleDragStart = (militarId: string) => {
+  const handleDragStart = (militarId: string, sourceItemId?: string) => {
     setDraggedMilitarId(militarId);
+    setDraggedSourceItemId(sourceItemId || null);
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOver = (e: React.DragEvent, slotKey?: string) => {
     e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (slotKey && dragOverSlotKey !== slotKey) {
+      setDragOverSlotKey(slotKey);
+    }
   };
 
-  // Drop Officer onto Slot Handler
+  // Drop Officer onto Slot Handler with full Swap & Inter-day Move support
   const handleDropSlot = (dataStr: string, posto: PostoServico) => {
+    setDragOverSlotKey(null);
     if (!draggedMilitarId) return;
+
+    const sourceItem = draggedSourceItemId
+      ? escalas.find((e) => e.id === draggedSourceItemId)
+      : null;
+
+    const itemExistenteTarget = escalas.find(
+      (e) => e.unidadeId === unidade.id && e.data === dataStr && e.postoId === posto.id
+    );
+
+    // If dropping onto the exact same slot it came from, do nothing
+    if (sourceItem && itemExistenteTarget?.id === sourceItem.id) {
+      setDraggedMilitarId(null);
+      setDraggedSourceItemId(null);
+      return;
+    }
+
+    const dataOrigem = sourceItem ? sourceItem.data : null;
+    const postoOrigem = sourceItem
+      ? postosList.find((p) => p.id === sourceItem.postoId) || null
+      : null;
 
     let startH = posto.horaInicio || "08:00";
     let duracao = posto.duracaoHoras || 24;
@@ -173,15 +202,15 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
 
     // Special handling for Reforço Extraordinário
     if (draggedMilitarId === "REFORCO_EXTRAORDINARIO") {
-      const itemExistente = escalas.find(
-        (e) => e.unidadeId === unidade.id && e.data === dataStr && e.postoId === posto.id
-      );
+      const escalasSemOrigem = sourceItem
+        ? escalas.filter((e) => e.id !== sourceItem.id)
+        : escalas;
 
-      let novasEscalas = [...escalas];
+      let novasEscalas = [...escalasSemOrigem];
 
-      if (itemExistente) {
+      if (itemExistenteTarget) {
         novasEscalas = novasEscalas.map((e) =>
-          e.id === itemExistente.id
+          e.id === itemExistenteTarget.id
             ? {
                 ...e,
                 militarId: "REFORCO_EXTRAORDINARIO",
@@ -208,27 +237,170 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
         novasEscalas.push(novoItem);
       }
 
+      novasEscalas = reajustarHierarquiaGuarnicao(
+        novasEscalas,
+        dataStr,
+        unidade.id,
+        militaresUnidade,
+        postosList
+      );
+      if (dataOrigem && dataOrigem !== dataStr) {
+        novasEscalas = reajustarHierarquiaGuarnicao(
+          novasEscalas,
+          dataOrigem,
+          unidade.id,
+          militaresUnidade,
+          postosList
+        );
+      }
+
       onUpdateEscalas(novasEscalas);
       setDropFeedback({
         tipo: "sucesso",
-        mensagem: `Reforço Extraordinário alocado com sucesso no posto ${posto.sigla} para o dia ${formatDateBr(dataStr)}.`
+        mensagem: sourceItem
+          ? `Reforço Extraordinário movido do dia ${formatDateBr(dataOrigem!)} para o posto ${posto.sigla} no dia ${formatDateBr(dataStr)}.`
+          : `Reforço Extraordinário alocado com sucesso no posto ${posto.sigla} para o dia ${formatDateBr(dataStr)}.`
       });
       setTimeout(() => setDropFeedback(null), 3500);
       setDraggedMilitarId(null);
+      setDraggedSourceItemId(null);
       return;
     }
 
     const militar = militaresUnidade.find((m) => m.id === draggedMilitarId);
     if (!militar) return;
 
-    // Run rules validation
+    // CASE 1: SWAP between two occupied slots (Permuta / Troca Direta entre dias ou postos)
+    if (sourceItem && itemExistenteTarget && itemExistenteTarget.militarId) {
+      const militarAlvo = militaresUnidade.find((m) => m.id === itemExistenteTarget.militarId);
+      const isAlvoReforco = itemExistenteTarget.militarId === "REFORCO_EXTRAORDINARIO";
+
+      // Validar regras para militar A no dia de destino
+      const escalasSemAmbos = escalas.filter(
+        (e) => e.id !== sourceItem.id && e.id !== itemExistenteTarget.id
+      );
+
+      const alertasA = validarRegrasEscala(
+        militar,
+        posto,
+        dataStr,
+        startTimeMs,
+        endTimeMs,
+        escalasSemAmbos,
+        afastamentos
+      );
+
+      const temBloqueioA = alertasA.some(
+        (a) => a.tipo === "BLOQUEIO_24H" || a.tipo === "INDISPONIVEL_AFASTADO"
+      );
+
+      if (temBloqueioA) {
+        const msg = alertasA.find((a) => a.tipo === "BLOQUEIO_24H" || a.tipo === "INDISPONIVEL_AFASTADO")?.mensagem;
+        setDropFeedback({
+          tipo: "bloqueio",
+          mensagem: msg || `Bloqueio: ${militar.graduacao} ${militar.nomeGuerra} não pode assumir este serviço.`
+        });
+        setTimeout(() => setDropFeedback(null), 5000);
+        setDraggedMilitarId(null);
+        setDraggedSourceItemId(null);
+        return;
+      }
+
+      // Validar regras para militar B no dia de origem (se houver militar e não for reforço)
+      if (militarAlvo && postoOrigem && dataOrigem) {
+        const alertasB = validarRegrasEscala(
+          militarAlvo,
+          postoOrigem,
+          dataOrigem,
+          sourceItem.startTimeMs,
+          sourceItem.endTimeMs,
+          escalasSemAmbos,
+          afastamentos
+        );
+
+        const temBloqueioB = alertasB.some(
+          (a) => a.tipo === "BLOQUEIO_24H" || a.tipo === "INDISPONIVEL_AFASTADO"
+        );
+
+        if (temBloqueioB) {
+          const msg = alertasB.find((a) => a.tipo === "BLOQUEIO_24H" || a.tipo === "INDISPONIVEL_AFASTADO")?.mensagem;
+          setDropFeedback({
+            tipo: "bloqueio",
+            mensagem: msg || `Bloqueio: ${militarAlvo.graduacao} ${militarAlvo.nomeGuerra} não pode assumir o dia ${formatDateBr(dataOrigem)}.`
+          });
+          setTimeout(() => setDropFeedback(null), 5000);
+          setDraggedMilitarId(null);
+          setDraggedSourceItemId(null);
+          return;
+        }
+      }
+
+      // Realizar SWAP / Permuta
+      let novasEscalas = escalas.map((e) => {
+        if (e.id === itemExistenteTarget.id) {
+          return {
+            ...e,
+            militarId: militar.id,
+            startTimeMs,
+            endTimeMs,
+            isPermuta: true,
+            isAjuste: true,
+            status: "efetivada"
+          };
+        }
+        if (e.id === sourceItem.id) {
+          return {
+            ...e,
+            militarId: isAlvoReforco ? "REFORCO_EXTRAORDINARIO" : (militarAlvo?.id || "REFORCO_EXTRAORDINARIO"),
+            isPermuta: true,
+            isAjuste: true,
+            status: "efetivada"
+          };
+        }
+        return e;
+      });
+
+      novasEscalas = reajustarHierarquiaGuarnicao(
+        novasEscalas,
+        dataStr,
+        unidade.id,
+        militaresUnidade,
+        postosList
+      );
+      if (dataOrigem && dataOrigem !== dataStr) {
+        novasEscalas = reajustarHierarquiaGuarnicao(
+          novasEscalas,
+          dataOrigem,
+          unidade.id,
+          militaresUnidade,
+          postosList
+        );
+      }
+
+      onUpdateEscalas(novasEscalas);
+      const nomeB = militarAlvo ? `${militarAlvo.graduacao} ${militarAlvo.nomeGuerra}` : "Reforço Extraordinário";
+      setDropFeedback({
+        tipo: "sucesso",
+        mensagem: `Permuta realizada com sucesso: ${militar.graduacao} ${militar.nomeGuerra} (${formatDateBr(dataStr)}) ⇄ ${nomeB} (${dataOrigem ? formatDateBr(dataOrigem) : ""}).`
+      });
+      setTimeout(() => setDropFeedback(null), 4500);
+      setDraggedMilitarId(null);
+      setDraggedSourceItemId(null);
+      return;
+    }
+
+    // CASE 2: MOVE to an empty slot or NEW ALLOCATION from Roster Bar
+    const escalasSemOrigem = sourceItem
+      ? escalas.filter((e) => e.id !== sourceItem.id)
+      : escalas;
+
     const alertas = validarRegrasEscala(
       militar,
       posto,
       dataStr,
       startTimeMs,
       endTimeMs,
-      escalas,
+      escalasSemOrigem,
       afastamentos
     );
 
@@ -244,6 +416,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
       });
       setTimeout(() => setDropFeedback(null), 5000);
       setDraggedMilitarId(null);
+      setDraggedSourceItemId(null);
       return;
     }
 
@@ -258,21 +431,18 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
     } else {
       setDropFeedback({
         tipo: "sucesso",
-        mensagem: `Policial militar ${militar.graduacao} ${militar.nomeGuerra} alocado com sucesso no posto ${posto.sigla}.`
+        mensagem: sourceItem
+          ? `Policial militar ${militar.graduacao} ${militar.nomeGuerra} movido do dia ${dataOrigem ? formatDateBr(dataOrigem) : ""} para o posto ${posto.sigla} no dia ${formatDateBr(dataStr)}.`
+          : `Policial militar ${militar.graduacao} ${militar.nomeGuerra} alocado com sucesso no posto ${posto.sigla} no dia ${formatDateBr(dataStr)}.`
       });
-      setTimeout(() => setDropFeedback(null), 3000);
+      setTimeout(() => setDropFeedback(null), 3500);
     }
 
-    // Update or create slot in escalas
-    const itemExistente = escalas.find(
-      (e) => e.unidadeId === unidade.id && e.data === dataStr && e.postoId === posto.id
-    );
+    let novasEscalas = [...escalasSemOrigem];
 
-    let novasEscalas = [...escalas];
-
-    if (itemExistente) {
+    if (itemExistenteTarget) {
       novasEscalas = novasEscalas.map((e) =>
-        e.id === itemExistente.id
+        e.id === itemExistenteTarget.id
           ? {
               ...e,
               militarId: militar.id,
@@ -306,9 +476,19 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
       militaresUnidade,
       postosList
     );
+    if (dataOrigem && dataOrigem !== dataStr) {
+      novasEscalas = reajustarHierarquiaGuarnicao(
+        novasEscalas,
+        dataOrigem,
+        unidade.id,
+        militaresUnidade,
+        postosList
+      );
+    }
 
     onUpdateEscalas(novasEscalas);
     setDraggedMilitarId(null);
+    setDraggedSourceItemId(null);
   };
 
   const handleRemoverEscala = (itemEscalaId: string) => {
@@ -427,10 +607,10 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
 
             <button
               onClick={handleSemanaHoje}
-              className="px-2 py-1 text-[11px] font-bold text-blue-400 bg-blue-950/40 border border-blue-800/60 rounded-lg hover:bg-blue-900/40 transition-colors cursor-pointer ml-1"
-              title="Ir para Semana Inicial (04/Ago)"
+              className="px-2.5 py-1 text-[11px] font-bold text-blue-400 bg-blue-950/40 border border-blue-800/60 rounded-lg hover:bg-blue-900/40 transition-colors cursor-pointer ml-1 whitespace-nowrap"
+              title="Ir para a Semana Operacional Atual"
             >
-              Início
+              Semana Atual
             </button>
           </div>
 
@@ -548,8 +728,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                 </th>
                 {semanaInfo.dias.map((d) => {
                   const isEmDestaque = dataDestaque === d.data;
-                  const hojeStr = getTodayString();
-                  const statusDia = obterStatusDiaEscala(d.data, hojeStr);
+                  const statusDia = obterStatusDiaEscala(d.data);
 
                   return (
                     <th
@@ -667,13 +846,24 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
 
                     const isEmDestaque = dataDestaque === dataStr;
 
+                    const slotKey = `${dataStr}_${posto.id}`;
+                    const isHoveringOver = dragOverSlotKey === slotKey;
+
                     return (
                       <td
                         key={dataStr}
-                        onDragOver={handleDragOver}
-                        onDrop={() => handleDropSlot(dataStr, posto)}
+                        onDragOver={(e) => handleDragOver(e, slotKey)}
+                        onDragLeave={() => {
+                          if (dragOverSlotKey === slotKey) setDragOverSlotKey(null);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          handleDropSlot(dataStr, posto);
+                        }}
                         className={`p-1 sm:p-1.5 transition-all relative align-top w-[12%] ${
-                          isEmDestaque
+                          isHoveringOver
+                            ? "bg-blue-950/90 ring-2 ring-blue-400 scale-[1.01] z-10 shadow-lg"
+                            : isEmDestaque
                             ? "bg-amber-950/25 ring-1 ring-amber-500/50"
                             : militarAlocado
                             ? "bg-slate-900/80"
@@ -681,10 +871,32 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                         }`}
                       >
                         {militarAlocado ? (
-                          <div className="bg-slate-950 text-white rounded-lg p-1.5 shadow-md border border-slate-800 space-y-1 group relative">
+                          <div
+                            draggable={Boolean(isComandante && itemEscala && !isEscalaItemConcluido(itemEscala))}
+                            onDragStart={(e) => {
+                              e.stopPropagation();
+                              if (itemEscala) {
+                                handleDragStart(itemEscala.militarId, itemEscala.id);
+                              }
+                            }}
+                            onDragEnd={() => {
+                              setDraggedMilitarId(null);
+                              setDraggedSourceItemId(null);
+                            }}
+                            className={`bg-slate-950 text-white rounded-lg p-1.5 shadow-md border border-slate-800 space-y-1 group relative transition-all ${
+                              isComandante && itemEscala && !isEscalaItemConcluido(itemEscala)
+                                ? "cursor-grab active:cursor-grabbing hover:border-blue-500/80"
+                                : ""
+                            }`}
+                            title={
+                              isComandante && itemEscala && !isEscalaItemConcluido(itemEscala)
+                                ? "Arraste para mover o militar para outro dia ou posto"
+                                : undefined
+                            }
+                          >
                             {/* Badges for Status / Permuta / Ajuste */}
                             <div className="flex items-center justify-between gap-0.5 text-[9px]">
-                              {dataStr < getTodayString() || itemEscala?.status === "concluida" ? (
+                              {itemEscala && isEscalaItemConcluido(itemEscala) ? (
                                 <span className="bg-emerald-950/80 text-emerald-300 font-extrabold px-1 py-0.5 rounded border border-emerald-700/60 flex items-center gap-0.5 truncate">
                                   <CheckCircle2 className="w-2.5 h-2.5 shrink-0 text-emerald-400" /> CONCLUÍDA
                                 </span>
@@ -772,7 +984,27 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                             )}
                           </div>
                         ) : itemEscala && itemEscala.militarId === "REFORCO_EXTRAORDINARIO" ? (
-                          <div className="bg-amber-950/80 border border-amber-600/80 text-amber-200 rounded-lg p-1.5 shadow-md space-y-1 group relative">
+                          <div
+                            draggable={Boolean(isComandante && !isEscalaItemConcluido(itemEscala))}
+                            onDragStart={(e) => {
+                              e.stopPropagation();
+                              handleDragStart("REFORCO_EXTRAORDINARIO", itemEscala.id);
+                            }}
+                            onDragEnd={() => {
+                              setDraggedMilitarId(null);
+                              setDraggedSourceItemId(null);
+                            }}
+                            className={`bg-amber-950/80 border border-amber-600/80 text-amber-200 rounded-lg p-1.5 shadow-md space-y-1 group relative transition-all ${
+                              isComandante && !isEscalaItemConcluido(itemEscala)
+                                ? "cursor-grab active:cursor-grabbing hover:border-amber-400"
+                                : ""
+                            }`}
+                            title={
+                              isComandante && !isEscalaItemConcluido(itemEscala)
+                                ? "Arraste para mover o Reforço Extraordinário para outro dia ou posto"
+                                : undefined
+                            }
+                          >
                             <div className="flex items-center justify-between text-[9px]">
                               <span className="bg-amber-500/20 text-amber-300 font-extrabold px-1 py-0.5 rounded border border-amber-500/30 flex items-center gap-0.5 truncate">
                                 <Zap className="w-2.5 h-2.5 text-amber-400 shrink-0" /> REFORÇO EXTRA

@@ -1,4 +1,91 @@
-import { UnidadeTenant, PostoServico, Militar, Afastamento, EscalaItem, DeterminacaoEscala } from "../types";
+import { UnidadeTenant, PostoServico, Militar, Afastamento, EscalaItem, DeterminacaoEscala, PerfilAcesso, RegistroFolga96h } from "../types";
+
+export const PERFIS_INICIAIS: PerfilAcesso[] = [
+  {
+    id: "admin",
+    nome: "Administrador do Sistema",
+    descricao: "Controle total irrestrito do sistema, incluindo configurações avançadas, usuários e gerenciamento de perfis de acesso.",
+    corBadge: "bg-red-500/20 text-red-300 border-red-500/40",
+    isSistema: true,
+    permissoes: {
+      escalaVisualizar: true,
+      escalaEditar: true,
+      escalaPermuta: true,
+      escalaAjuste: true,
+      escalaPdf: true,
+      projecaoVisualizar: true,
+      projecaoExecutar: true,
+      projecaoResetar: true,
+      conflitosVisualizar: true,
+      postosVisualizar: true,
+      postosEditar: true,
+      efetivoVisualizar: true,
+      efetivoEditar: true,
+      afastamentosVisualizar: true,
+      afastamentosEditar: true,
+      configuracoesEditar: true,
+      suporteAcesso: true,
+      gerenciarPerfis: true,
+      gerenciarUsuarios: true
+    }
+  },
+  {
+    id: "comandante",
+    nome: "Comandante",
+    descricao: "Acesso de gestão operacional: confecção e ajustes de escalas, projeção mensal, alocação de efetivo, postos e homologação de permutas.",
+    corBadge: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+    isSistema: true,
+    permissoes: {
+      escalaVisualizar: true,
+      escalaEditar: true,
+      escalaPermuta: true,
+      escalaAjuste: true,
+      escalaPdf: true,
+      projecaoVisualizar: true,
+      projecaoExecutar: true,
+      projecaoResetar: true,
+      conflitosVisualizar: true,
+      postosVisualizar: true,
+      postosEditar: true,
+      efetivoVisualizar: true,
+      efetivoEditar: true,
+      afastamentosVisualizar: true,
+      afastamentosEditar: true,
+      configuracoesEditar: true,
+      suporteAcesso: true,
+      gerenciarPerfis: false,
+      gerenciarUsuarios: true
+    }
+  },
+  {
+    id: "efetivo",
+    nome: "Efetivo",
+    descricao: "Perfil para policiais militares do efetivo. Permite consulta à escala semanal, projeção mensal de escalas e download do PDF oficial.",
+    corBadge: "bg-blue-600/20 text-blue-300 border-blue-500/30",
+    isSistema: true,
+    permissoes: {
+      escalaVisualizar: true,
+      escalaEditar: false,
+      escalaPermuta: false,
+      escalaAjuste: false,
+      escalaPdf: true,
+      projecaoVisualizar: true,
+      projecaoExecutar: false,
+      projecaoResetar: false,
+      conflitosVisualizar: false,
+      postosVisualizar: false,
+      postosEditar: false,
+      efetivoVisualizar: true,
+      efetivoEditar: false,
+      afastamentosVisualizar: false,
+      afastamentosEditar: false,
+      configuracoesEditar: false,
+      suporteAcesso: false,
+      gerenciarPerfis: false,
+      gerenciarUsuarios: false
+    }
+  }
+];
 
 export const UNIDADES_INICIAIS: UnidadeTenant[] = [
   {
@@ -108,13 +195,25 @@ export const MILITARES_INICIAIS: Militar[] = [
     ativo: true
   },
   {
+    id: "mil-008",
+    unidadeId: "npm-curvelandia",
+    graduacao: "1º SGT PM",
+    nomeGuerra: "CELSO",
+    nomeCompleto: "CELSO ROBERTO MARQUES",
+    rgPmmt: "881.726",
+    antiguidadeOrdem: 2, // #2 na Antiguidade PMMT
+    cnhAtiva: true,
+    aptidoesPosto: ["posto-cmt-gu", "posto-patrulheiro"],
+    ativo: true
+  },
+  {
     id: "mil-002",
     unidadeId: "npm-curvelandia",
     graduacao: "1º SGT PM",
     nomeGuerra: "LINDOMAR",
     nomeCompleto: "LINDOMAR FERREIRA SOUZA",
     rgPmmt: "882.327",
-    antiguidadeOrdem: 2,
+    antiguidadeOrdem: 3,
     cnhAtiva: true,
     aptidoesPosto: ["posto-cmt-gu", "posto-patrulheiro"],
     ativo: true
@@ -126,7 +225,7 @@ export const MILITARES_INICIAIS: Militar[] = [
     nomeGuerra: "BARBOSA",
     nomeCompleto: "RODRIGO BARBOSA DOS SANTOS",
     rgPmmt: "883.028",
-    antiguidadeOrdem: 3,
+    antiguidadeOrdem: 4,
     cnhAtiva: true,
     aptidoesPosto: ["posto-cmt-gu", "posto-motorista", "posto-patrulheiro"],
     ativo: true
@@ -138,7 +237,7 @@ export const MILITARES_INICIAIS: Militar[] = [
     nomeGuerra: "PABLO",
     nomeCompleto: "PABLO HENRIQUE OLIVEIRA",
     rgPmmt: "884.196",
-    antiguidadeOrdem: 4,
+    antiguidadeOrdem: 5,
     cnhAtiva: true,
     aptidoesPosto: ["posto-cmt-gu", "posto-motorista", "posto-patrulheiro"],
     ativo: true
@@ -150,7 +249,7 @@ export const MILITARES_INICIAIS: Militar[] = [
     nomeGuerra: "VANDERSON",
     nomeCompleto: "VANDERSON SILVA LIMA",
     rgPmmt: "885.597",
-    antiguidadeOrdem: 5,
+    antiguidadeOrdem: 6,
     cnhAtiva: true,
     aptidoesPosto: ["posto-cmt-gu", "posto-motorista", "posto-patrulheiro"],
     ativo: true
@@ -162,31 +261,7 @@ export const MILITARES_INICIAIS: Militar[] = [
     nomeGuerra: "FABRÍCIO",
     nomeCompleto: "FABRÍCIO MENDES CARDOSO",
     rgPmmt: "885.943",
-    antiguidadeOrdem: 6,
-    cnhAtiva: true,
-    aptidoesPosto: ["posto-cmt-gu", "posto-patrulheiro"],
-    ativo: true
-  },
-  {
-    id: "mil-007",
-    unidadeId: "npm-curvelandia",
-    graduacao: "3º SGT PM",
-    nomeGuerra: "EVERALDO",
-    nomeCompleto: "EVERALDO PEREIRA DA SILVA",
-    rgPmmt: "885.608",
     antiguidadeOrdem: 7,
-    cnhAtiva: true,
-    aptidoesPosto: ["posto-cmt-gu", "posto-motorista", "posto-patrulheiro"],
-    ativo: true
-  },
-  {
-    id: "mil-008",
-    unidadeId: "npm-curvelandia",
-    graduacao: "1º SGT PM",
-    nomeGuerra: "CELSO",
-    nomeCompleto: "CELSO ROBERTO MARQUES",
-    rgPmmt: "881.726",
-    antiguidadeOrdem: 8,
     cnhAtiva: true,
     aptidoesPosto: ["posto-cmt-gu", "posto-patrulheiro"],
     ativo: true
@@ -198,9 +273,21 @@ export const MILITARES_INICIAIS: Militar[] = [
     nomeGuerra: "JONAS",
     nomeCompleto: "JONAS AUGUSTO ALVES",
     rgPmmt: "885.564",
-    antiguidadeOrdem: 9,
+    antiguidadeOrdem: 8,
     cnhAtiva: true,
     aptidoesPosto: ["posto-cmt-gu", "posto-motorista"],
+    ativo: true
+  },
+  {
+    id: "mil-007",
+    unidadeId: "npm-curvelandia",
+    graduacao: "3º SGT PM",
+    nomeGuerra: "EVERALDO",
+    nomeCompleto: "EVERALDO PEREIRA DA SILVA",
+    rgPmmt: "885.608",
+    antiguidadeOrdem: 9,
+    cnhAtiva: true,
+    aptidoesPosto: ["posto-cmt-gu", "posto-motorista", "posto-patrulheiro"],
     ativo: true
   },
   {
@@ -234,7 +321,7 @@ export const MILITARES_INICIAIS: Militar[] = [
     nomeGuerra: "FONTES",
     nomeCompleto: "GUILHERME FONTES NOGUEIRA",
     rgPmmt: "888.636",
-    antiguidadeOrdem: 12, // Mais moderno
+    antiguidadeOrdem: 12,
     cnhAtiva: true,
     aptidoesPosto: ["posto-motorista", "posto-patrulheiro"],
     ativo: true
@@ -520,5 +607,60 @@ export const ESCALA_INICIAL_04_A_10_AGOSTO: EscalaItem[] = [
     isPermuta: false,
     isAjuste: false,
     status: "efetivada"
+  }
+];
+
+export const REGISTROS_FOLGA_96H_INICIAIS: RegistroFolga96h[] = [
+  {
+    id: "folga-96h-001",
+    unidadeId: "npm-curvelandia",
+    militarId: "mil-008", // CELSO
+    dataInicio: "2026-08-11",
+    dataFim: "2026-08-14",
+    diasFolga: ["2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14"],
+    horasDescanso: 96,
+    motivo: "Folga Regulamentar 96h (Adequação de Efetivo 24x72)",
+    observacoes: "Compensação de escala operacional cumprida em 10/08.",
+    registradoPor: "Comandante da Unidade",
+    criadoEm: "2026-08-14T12:00:00.000Z"
+  },
+  {
+    id: "folga-96h-002",
+    unidadeId: "npm-curvelandia",
+    militarId: "mil-004", // PABLO
+    dataInicio: "2026-08-07",
+    dataFim: "2026-08-10",
+    diasFolga: ["2026-08-07", "2026-08-08", "2026-08-09", "2026-08-10"],
+    horasDescanso: 96,
+    motivo: "Folga Regulamentar 96h (Ciclo de Rodízio)",
+    observacoes: "Intervalo entre serviços operacionais de 06/08 e 10/08.",
+    registradoPor: "Comandante da Unidade",
+    criadoEm: "2026-08-10T12:00:00.000Z"
+  },
+  {
+    id: "folga-96h-003",
+    unidadeId: "npm-curvelandia",
+    militarId: "mil-005", // AMARAL
+    dataInicio: "2026-08-05",
+    dataFim: "2026-08-08",
+    diasFolga: ["2026-08-05", "2026-08-06", "2026-08-07", "2026-08-08"],
+    horasDescanso: 96,
+    motivo: "Folga Regulamentar 96h (Compensação)",
+    observacoes: "Folga operacional concedida após serviço de 24h.",
+    registradoPor: "Comandante da Unidade",
+    criadoEm: "2026-08-08T12:00:00.000Z"
+  },
+  {
+    id: "folga-96h-004",
+    unidadeId: "npm-curvelandia",
+    militarId: "mil-002", // LINDOMAR
+    dataInicio: "2026-08-01",
+    dataFim: "2026-08-04",
+    diasFolga: ["2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04"],
+    horasDescanso: 96,
+    motivo: "Folga Regulamentar 96h (Rodízio de Guarnição)",
+    observacoes: "Intervalo de 96h concedido na transição de módulo.",
+    registradoPor: "Comandante da Unidade",
+    criadoEm: "2026-08-04T12:00:00.000Z"
   }
 ];

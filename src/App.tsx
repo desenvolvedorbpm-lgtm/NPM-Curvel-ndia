@@ -7,15 +7,21 @@ import {
   Afastamento,
   EscalaItem,
   UsuarioAuth,
+  PerfilAcesso,
+  RegistroFolga96h,
   isComandante,
-  isOperador
+  isOperador,
+  isAdmin,
+  temPermissao
 } from "./types";
 import {
   UNIDADES_INICIAIS,
   POSTOS_INICIAIS,
   MILITARES_INICIAIS,
   AFASTAMENTOS_INICIAIS,
-  ESCALA_INICIAL_04_A_10_AGOSTO
+  ESCALA_INICIAL_04_A_10_AGOSTO,
+  PERFIS_INICIAIS,
+  REGISTROS_FOLGA_96H_INICIAIS
 } from "./data/initialData";
 import { Header } from "./components/Header";
 import { LoginPage, normalizeUser } from "./components/LoginPage";
@@ -29,7 +35,20 @@ import { PermutaModal } from "./components/PermutaModal";
 import { AjusteModal } from "./components/AjusteModal";
 import { PdfExportModal } from "./components/PdfExportModal";
 import { ConflictsManager } from "./components/ConflictsManager";
-import { projetarEscalasSemanais, validarRegrasEscala, lancarMilitarExpedienteAutomatico, getOperationalWeekForDate, obterTodosConflitosEscala, getTodayString, formatDateBr, reajustarHierarquiaGuarnicao } from "./utils/rulesEngine";
+import { SupportManager } from "./components/SupportManager";
+import {
+  projetarEscalasSemanais,
+  validarRegrasEscala,
+  lancarMilitarExpedienteAutomatico,
+  getOperationalWeekForDate,
+  getCurrentOperationalTuesday,
+  obterTodosConflitosEscala,
+  getTodayString,
+  obterStatusDiaEscala,
+  isEscalaItemConcluido,
+  formatDateBr,
+  reajustarHierarquiaGuarnicao
+} from "./utils/rulesEngine";
 import { saveCollectionToFirestore, subscribeToCollection } from "./lib/dbService";
 
 const LS_KEYS = {
@@ -38,7 +57,9 @@ const LS_KEYS = {
   MILITARES: "pmmt_militares_v2",
   AFASTAMENTOS: "pmmt_afastamentos_v2",
   ESCALAS: "pmmt_escalas_v2",
+  REGISTROS_FOLGA_96H: "pmmt_registros_folga_96h_v2",
   USUARIOS: "pmmt_usuarios_v2",
+  PERFIS: "pmmt_perfis_v2",
   USUARIO_LOGADO: "pmmt_usuario_logado_v2"
 };
 
@@ -52,11 +73,81 @@ function getStoredData<T>(key: string, fallback: T): T {
   }
 }
 
+function normalizeMilitaresInitial(rawMilitares: Militar[]): Militar[] {
+  if (!rawMilitares || rawMilitares.length === 0) return MILITARES_INICIAIS;
+
+  // Garante que o 1º SGT PM CELSO (mil-008 / RG 881.726) tenha sempre sua ordem oficial de antiguidade #2
+  const celso = rawMilitares.find(
+    (m) => m.id === "mil-008" || m.rgPmmt === "881.726" || m.nomeGuerra.toUpperCase().includes("CELSO")
+  );
+
+  if (celso && celso.antiguidadeOrdem !== 2) {
+    const listSemCelso = rawMilitares.filter((m) => m.id !== celso.id);
+    // Insere Celso na posição 2
+    listSemCelso.splice(1, 0, { ...celso, antiguidadeOrdem: 2 });
+    // Reindexar 1..N
+    return listSemCelso.map((m, idx) => ({
+      ...m,
+      antiguidadeOrdem: idx + 1
+    }));
+  }
+
+  return rawMilitares;
+}
+
+function normalizeUsuariosInitial(rawUsuarios: UsuarioAuth[]): UsuarioAuth[] {
+  let list = rawUsuarios && rawUsuarios.length > 0 ? [...rawUsuarios] : getInitialUsuarios(MILITARES_INICIAIS);
+
+  // Garantir que o usuário admin tenha sempre perfil de Administrador do Sistema
+  const adminIdx = list.findIndex((u) => u.username === "admin" || u.id === "user-admin");
+  if (adminIdx === -1) {
+    list.unshift({
+      id: "user-admin",
+      username: "admin",
+      role: "admin",
+      perfilId: "admin",
+      password: "123456",
+      primeiroAcesso: false,
+      nomeDisplay: "Administrador do Sistema"
+    });
+  } else {
+    list[adminIdx] = {
+      ...list[adminIdx],
+      role: "admin",
+      perfilId: "admin",
+      nomeDisplay: "Administrador do Sistema"
+    };
+  }
+
+  // Garantir perfil do comandante
+  const cmtIdx = list.findIndex((u) => u.username === "comandante" || u.id === "user-comandante");
+  if (cmtIdx !== -1) {
+    list[cmtIdx] = {
+      ...list[cmtIdx],
+      role: "comandante",
+      perfilId: "comandante"
+    };
+  }
+
+  return list;
+}
+
 function getInitialUsuarios(militaresList: Militar[]): UsuarioAuth[] {
+  const adminUser: UsuarioAuth = {
+    id: "user-admin",
+    username: "admin",
+    role: "admin",
+    perfilId: "admin",
+    password: "123456",
+    primeiroAcesso: false,
+    nomeDisplay: "Administrador do Sistema"
+  };
+
   const comandanteUser: UsuarioAuth = {
     id: "user-comandante",
     username: "comandante",
     role: "comandante",
+    perfilId: "comandante",
     password: "123456",
     primeiroAcesso: false,
     nomeDisplay: "Comandante da Unidade"
@@ -66,18 +157,10 @@ function getInitialUsuarios(militaresList: Militar[]): UsuarioAuth[] {
     id: "user-operador",
     username: "operador",
     role: "operador",
+    perfilId: "efetivo",
     password: "123456",
     primeiroAcesso: false,
     nomeDisplay: "Operador de Escala (Consulta)"
-  };
-
-  const adminUser: UsuarioAuth = {
-    id: "user-admin",
-    username: "admin",
-    role: "comandante",
-    password: "123456",
-    primeiroAcesso: false,
-    nomeDisplay: "Administrador do Sistema"
   };
 
   const militaryUsers: UsuarioAuth[] = militaresList.map((m) => ({
@@ -85,12 +168,13 @@ function getInitialUsuarios(militaresList: Militar[]): UsuarioAuth[] {
     username: m.rgPmmt,
     militarId: m.id,
     role: "operador",
+    perfilId: "efetivo",
     password: "123456",
     primeiroAcesso: false,
     nomeDisplay: `${m.graduacao} ${m.nomeGuerra}`
   }));
 
-  return [comandanteUser, operadorUser, adminUser, ...militaryUsers];
+  return [adminUser, comandanteUser, operadorUser, ...militaryUsers];
 }
 
 export default function App() {
@@ -109,21 +193,11 @@ export default function App() {
     return valid[0] || UNIDADES_INICIAIS[0];
   });
 
-  React.useEffect(() => {
-    if (
-      unidadeAtual &&
-      (unidadeAtual.id === "17-bpm-mirassol" ||
-        unidadeAtual.nome.toLowerCase().includes("mirassol"))
-    ) {
-      if (unidades[0]) setUnidadeAtual(unidades[0]);
-    }
-  }, [unidadeAtual, unidades]);
-
   const [postos, setPostos] = useState<PostoServico[]>(() =>
     getStoredData(LS_KEYS.POSTOS, POSTOS_INICIAIS)
   );
   const [militares, setMilitares] = useState<Militar[]>(() =>
-    getStoredData(LS_KEYS.MILITARES, MILITARES_INICIAIS)
+    normalizeMilitaresInitial(getStoredData(LS_KEYS.MILITARES, MILITARES_INICIAIS))
   );
   const [afastamentos, setAfastamentos] = useState<Afastamento[]>(() =>
     getStoredData(LS_KEYS.AFASTAMENTOS, AFASTAMENTOS_INICIAIS)
@@ -131,14 +205,29 @@ export default function App() {
   const [escalas, setEscalas] = useState<EscalaItem[]>(() =>
     getStoredData(LS_KEYS.ESCALAS, ESCALA_INICIAL_04_A_10_AGOSTO)
   );
+  const [registrosFolga96h, setRegistrosFolga96h] = useState<RegistroFolga96h[]>(() =>
+    getStoredData(LS_KEYS.REGISTROS_FOLGA_96H, REGISTROS_FOLGA_96H_INICIAIS)
+  );
 
   // Authentication & Users State
   const [usuarios, setUsuarios] = useState<UsuarioAuth[]>(() =>
-    getStoredData(LS_KEYS.USUARIOS, getInitialUsuarios(MILITARES_INICIAIS))
+    normalizeUsuariosInitial(getStoredData(LS_KEYS.USUARIOS, getInitialUsuarios(MILITARES_INICIAIS)))
   );
-  const [usuarioLogado, setUsuarioLogado] = useState<UsuarioAuth | null>(() =>
-    getStoredData<UsuarioAuth | null>(LS_KEYS.USUARIO_LOGADO, null)
+  const [perfis, setPerfis] = useState<PerfilAcesso[]>(() =>
+    getStoredData(LS_KEYS.PERFIS, PERFIS_INICIAIS)
   );
+  const [usuarioLogado, setUsuarioLogado] = useState<UsuarioAuth | null>(() => {
+    const stored = getStoredData<UsuarioAuth | null>(LS_KEYS.USUARIO_LOGADO, null);
+    if (stored && (stored.username === "admin" || stored.id === "user-admin")) {
+      return {
+        ...stored,
+        role: "admin",
+        perfilId: "admin",
+        nomeDisplay: "Administrador do Sistema"
+      };
+    }
+    return stored;
+  });
 
   // Sync user list whenever militares list is updated
   React.useEffect(() => {
@@ -157,6 +246,7 @@ export default function App() {
             username: m.rgPmmt,
             militarId: m.id,
             role: "operador",
+            perfilId: "efetivo",
             password: "123456",
             primeiroAcesso: false,
             nomeDisplay: `${m.graduacao} ${m.nomeGuerra}`
@@ -179,7 +269,8 @@ export default function App() {
         }
       }
 
-      return changed ? updated : prev;
+      if (!changed) return prev;
+      return JSON.stringify(prev) === JSON.stringify(updated) ? prev : updated;
     });
   }, [militares]);
 
@@ -189,22 +280,35 @@ export default function App() {
       const valid = items.filter(
         (u) => u.id !== "17-bpm-mirassol" && !u.nome.toLowerCase().includes("mirassol")
       );
-      setUnidades(valid.length > 0 ? valid : UNIDADES_INICIAIS);
+      const res = valid.length > 0 ? valid : UNIDADES_INICIAIS;
+      setUnidades((prev) => (JSON.stringify(prev) === JSON.stringify(res) ? prev : res));
     });
-    const unsubPostos = subscribeToCollection("postos", postos, (items) => {
-      setPostos(items);
+    const unsubPostos = subscribeToCollection<PostoServico>("postos", postos, (items) => {
+      setPostos((prev) => (JSON.stringify(prev) === JSON.stringify(items) ? prev : items));
     });
-    const unsubMilitares = subscribeToCollection("militares", militares, (items) => {
-      setMilitares(items);
+    const unsubMilitares = subscribeToCollection<Militar>("militares", militares, (items) => {
+      setMilitares((prev) => {
+        const normalized = normalizeMilitaresInitial(items);
+        return JSON.stringify(prev) === JSON.stringify(normalized) ? prev : normalized;
+      });
     });
-    const unsubAfastamentos = subscribeToCollection("afastamentos", afastamentos, (items) => {
-      setAfastamentos(items);
+    const unsubAfastamentos = subscribeToCollection<Afastamento>("afastamentos", afastamentos, (items) => {
+      setAfastamentos((prev) => (JSON.stringify(prev) === JSON.stringify(items) ? prev : items));
     });
-    const unsubEscalas = subscribeToCollection("escalas", escalas, (items) => {
-      setEscalas(items);
+    const unsubEscalas = subscribeToCollection<EscalaItem>("escalas", escalas, (items) => {
+      setEscalas((prev) => (JSON.stringify(prev) === JSON.stringify(items) ? prev : items));
     });
-    const unsubUsuarios = subscribeToCollection("usuarios", usuarios, (items) => {
-      setUsuarios(items);
+    const unsubUsuarios = subscribeToCollection<UsuarioAuth>("usuarios", usuarios, (items) => {
+      setUsuarios((prev) => {
+        const normalized = normalizeUsuariosInitial(items);
+        return JSON.stringify(prev) === JSON.stringify(normalized) ? prev : normalized;
+      });
+    });
+    const unsubPerfis = subscribeToCollection<PerfilAcesso>("perfisAcesso", perfis, (items) => {
+      setPerfis((prev) => (JSON.stringify(prev) === JSON.stringify(items) ? prev : items));
+    });
+    const unsubRegistrosFolga = subscribeToCollection<RegistroFolga96h>("registrosFolga96h", registrosFolga96h, (items) => {
+      setRegistrosFolga96h((prev) => (JSON.stringify(prev) === JSON.stringify(items) ? prev : items));
     });
 
     return () => {
@@ -214,6 +318,8 @@ export default function App() {
       unsubAfastamentos();
       unsubEscalas();
       unsubUsuarios();
+      unsubPerfis();
+      unsubRegistrosFolga();
     };
   }, []);
 
@@ -255,10 +361,24 @@ export default function App() {
 
   React.useEffect(() => {
     try {
+      localStorage.setItem(LS_KEYS.REGISTROS_FOLGA_96H, JSON.stringify(registrosFolga96h));
+      saveCollectionToFirestore("registrosFolga96h", registrosFolga96h);
+    } catch (e) { console.error(e); }
+  }, [registrosFolga96h]);
+
+  React.useEffect(() => {
+    try {
       localStorage.setItem(LS_KEYS.USUARIOS, JSON.stringify(usuarios));
       saveCollectionToFirestore("usuarios", usuarios);
     } catch (e) { console.error(e); }
   }, [usuarios]);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(LS_KEYS.PERFIS, JSON.stringify(perfis));
+      saveCollectionToFirestore("perfisAcesso", perfis);
+    } catch (e) { console.error(e); }
+  }, [perfis]);
 
   React.useEffect(() => {
     try {
@@ -272,21 +392,42 @@ export default function App() {
 
   // UI State
   const [tabAtiva, setTabAtiva] = useState<
-    "escala" | "mensal" | "conflitos" | "postos" | "militares" | "afastamentos" | "configuracoes"
+    "escala" | "mensal" | "conflitos" | "postos" | "militares" | "afastamentos" | "configuracoes" | "suporte"
   >("escala");
 
-  // Tab Guard: Operador profile can only view 'escala' or 'mensal'
+  // Tab Guard based on dynamic user permissions
   React.useEffect(() => {
-    if (usuarioLogado && !isComandante(usuarioLogado)) {
-      if (tabAtiva !== "escala" && tabAtiva !== "mensal") {
+    if (usuarioLogado) {
+      if (tabAtiva === "conflitos" && !isComandante(usuarioLogado) && !temPermissao(usuarioLogado, perfis, "conflitosVisualizar")) {
+        setTabAtiva("escala");
+      } else if (tabAtiva === "postos" && !isComandante(usuarioLogado) && !temPermissao(usuarioLogado, perfis, "postosVisualizar")) {
+        setTabAtiva("escala");
+      } else if (tabAtiva === "militares" && !isComandante(usuarioLogado) && !temPermissao(usuarioLogado, perfis, "efetivoVisualizar")) {
+        setTabAtiva("escala");
+      } else if (tabAtiva === "afastamentos" && !isComandante(usuarioLogado) && !temPermissao(usuarioLogado, perfis, "afastamentosVisualizar")) {
+        setTabAtiva("escala");
+      } else if (tabAtiva === "configuracoes" && !isComandante(usuarioLogado) && !temPermissao(usuarioLogado, perfis, "configuracoesEditar")) {
+        setTabAtiva("escala");
+      } else if (tabAtiva === "suporte" && !isComandante(usuarioLogado) && !temPermissao(usuarioLogado, perfis, "suporteAcesso")) {
         setTabAtiva("escala");
       }
     }
-  }, [usuarioLogado, tabAtiva]);
+  }, [usuarioLogado, tabAtiva, perfis]);
 
   // Navigation from Conflicts to Schedule Grid
-  const [dataTercaNavegacao, setDataTercaNavegacao] = useState("2026-08-04");
+  const [dataTercaNavegacao, setDataTercaNavegacao] = useState<string>(() => getCurrentOperationalTuesday());
   const [dataDestaqueNavegacao, setDataDestaqueNavegacao] = useState<string | null>(null);
+
+  const handleSelectTab = (
+    tab: "escala" | "mensal" | "conflitos" | "postos" | "militares" | "afastamentos" | "configuracoes" | "suporte"
+  ) => {
+    if (tab === "escala") {
+      // Sempre que abrir a escala semanal, abre na semana atual
+      setDataTercaNavegacao(getCurrentOperationalTuesday());
+      setDataDestaqueNavegacao(null);
+    }
+    setTabAtiva(tab);
+  };
 
   const handleNavegarParaDataEscala = (dataItemStr: string) => {
     const sem = getOperationalWeekForDate(dataItemStr);
@@ -299,7 +440,7 @@ export default function App() {
   const [permutaItem, setPermutaItem] = useState<EscalaItem | null>(null);
   const [ajusteItem, setAjusteItem] = useState<EscalaItem | null>(null);
   const [pdfModalAberto, setPdfModalAberto] = useState(false);
-  const [dataTercaPdf, setDataTercaPdf] = useState("2026-08-04");
+  const [dataTercaPdf, setDataTercaPdf] = useState<string>(() => getCurrentOperationalTuesday());
   const [showConfirmResetModal, setShowConfirmResetModal] = useState(false);
   const [toastFeedback, setToastFeedback] = useState<{ message: string; type: "success" | "info" } | null>(null);
 
@@ -326,10 +467,16 @@ export default function App() {
 
   // Handlers for Militares
   const handleAddMilitar = (novoMilitar: Militar) => {
-    setMilitares([...militares, novoMilitar]);
+    const atualizados = [...militares, novoMilitar].sort((a, b) => a.antiguidadeOrdem - b.antiguidadeOrdem);
+    setMilitares(atualizados);
   };
   const handleUpdateMilitar = (militarAtualizado: Militar) => {
-    setMilitares(militares.map((m) => (m.id === militarAtualizado.id ? militarAtualizado : m)));
+    const outros = militares.filter((m) => m.id !== militarAtualizado.id);
+    const atualizados = [...outros, militarAtualizado].sort((a, b) => a.antiguidadeOrdem - b.antiguidadeOrdem);
+    setMilitares(atualizados);
+  };
+  const handleUpdateMilitaresList = (novosMilitares: Militar[]) => {
+    setMilitares(novosMilitares);
   };
   const handleDeleteMilitar = (militarId: string) => {
     setMilitares(militares.filter((m) => m.id !== militarId));
@@ -482,21 +629,21 @@ export default function App() {
 
     for (const item of escalas) {
       const isProjetada = item.status === "projetada" || item.id.startsWith("proj-");
-      const isPassada = item.data < hojeStr;
+      const isPassada = obterStatusDiaEscala(item.data) === "concluida" || item.status === "concluida";
 
       if (isPassada) {
-        // Dias que já passaram: alteram status para 'concluida' e são mantidas intactas
+        // Dias que já concluíram (após as 08:00 do término): status 'concluida' e mantidas intactas
         mantidas.push({
           ...item,
           status: "concluida"
         });
       } else {
-        // Dia atual ou dias futuros (Status: "aberta" / passível de edição/alteração)
+        // Escalas em andamento ou futuras (Status: "aberta" / passível de edição/alteração)
         if (isProjetada) {
-          // Apenas escalas automáticas projetadas de hoje e do futuro são resetadas
+          // Apenas escalas automáticas projetadas abertas são resetadas
           removidosCount++;
         } else {
-          // Lançamentos manuais, permutas e ajustes do dia atual e futuros são mantidos
+          // Lançamentos manuais, permutas e ajustes são mantidos
           mantidas.push(item);
         }
       }
@@ -510,6 +657,21 @@ export default function App() {
       type: "success"
     });
     setTimeout(() => setToastFeedback(null), 5000);
+  };
+
+  // Handlers for 96h Rest Records
+  const handleAddRegistroFolga96h = (novo: RegistroFolga96h) => {
+    setRegistrosFolga96h((prev) => [novo, ...prev]);
+  };
+
+  const handleUpdateRegistroFolga96h = (atualizado: RegistroFolga96h) => {
+    setRegistrosFolga96h((prev) =>
+      prev.map((r) => (r.id === atualizado.id ? atualizado : r))
+    );
+  };
+
+  const handleDeleteRegistroFolga96h = (id: string) => {
+    setRegistrosFolga96h((prev) => prev.filter((r) => r.id !== id));
   };
 
   // Count active warnings across current unit
@@ -540,10 +702,14 @@ export default function App() {
         unidadeAtual={unidadeAtual}
         onSelectUnidade={(u) => setUnidadeAtual(u)}
         tabAtiva={tabAtiva}
-        onSelectTab={(tab) => setTabAtiva(tab)}
-        onAbrirPdf={() => setPdfModalAberto(true)}
+        onSelectTab={handleSelectTab}
+        onAbrirPdf={() => {
+          setDataTercaPdf(dataTercaNavegacao || getCurrentOperationalTuesday());
+          setPdfModalAberto(true);
+        }}
         qtdAlertasAtivos={alertasAtivosCount}
         usuarioLogado={usuarioLogado}
+        perfis={perfis}
         onLogout={() => setUsuarioLogado(null)}
       />
 
@@ -565,7 +731,7 @@ export default function App() {
             onSetDataTercaNavegacao={(dt) => setDataTercaNavegacao(dt)}
             dataDestaque={dataDestaqueNavegacao}
             onLimparDestaque={() => setDataDestaqueNavegacao(null)}
-            isComandante={isComandante(usuarioLogado)}
+            isComandante={isComandante(usuarioLogado) || temPermissao(usuarioLogado, perfis, "escalaEditar")}
           />
         )}
 
@@ -579,7 +745,7 @@ export default function App() {
             onProjetarFuturo={handleProjetarFuturo}
             onResetarProjecao={handleResetarProjecao}
             onUpdateEscalas={(novas) => setEscalas(novas)}
-            isComandante={isComandante(usuarioLogado)}
+            isComandante={isComandante(usuarioLogado) || temPermissao(usuarioLogado, perfis, "projecaoExecutar")}
           />
         )}
 
@@ -590,9 +756,14 @@ export default function App() {
             postos={postos}
             escalas={escalas}
             afastamentos={afastamentos}
+            registrosFolga96h={registrosFolga96h}
+            onAddRegistroFolga96h={handleAddRegistroFolga96h}
+            onUpdateRegistroFolga96h={handleUpdateRegistroFolga96h}
+            onDeleteRegistroFolga96h={handleDeleteRegistroFolga96h}
             onNavegarParaData={handleNavegarParaDataEscala}
             onAbrirPermuta={(item) => setPermutaItem(item)}
             onAbrirAjuste={(item) => setAjusteItem(item)}
+            isComandante={isComandante(usuarioLogado) || temPermissao(usuarioLogado, perfis, "conflitosVisualizar")}
           />
         )}
 
@@ -615,6 +786,7 @@ export default function App() {
             onAddMilitar={handleAddMilitar}
             onUpdateMilitar={handleUpdateMilitar}
             onDeleteMilitar={handleDeleteMilitar}
+            onUpdateMilitaresList={handleUpdateMilitaresList}
           />
         )}
 
@@ -628,10 +800,16 @@ export default function App() {
           />
         )}
 
-        {tabAtiva === "configuracoes" && (
+        {(tabAtiva === "configuracoes" || tabAtiva === "suporte") && (
           <UnitConfigModal
             unidade={unidadeAtual}
             onSalvarUnidade={handleSalvarUnidade}
+            perfis={perfis}
+            usuarios={usuarios}
+            militares={militares}
+            usuarioLogado={usuarioLogado}
+            onUpdatePerfis={(novos) => setPerfis(novos)}
+            onUpdateUsuarios={(novos) => setUsuarios(novos)}
           />
         )}
       </main>

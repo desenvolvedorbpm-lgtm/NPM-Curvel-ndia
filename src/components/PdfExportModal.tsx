@@ -383,18 +383,6 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                   <p className="text-[10.5px] font-semibold text-slate-800">Comandante do NPM de Curvelândia</p>
                 </div>
               </div>
-
-              {/* FOOTER BARCODE & QR CODE VISUAL */}
-              <div className="pt-3 flex items-end justify-between text-[9px] text-slate-600 font-mono border-t border-slate-300 mt-4">
-                <div>
-                  <p>Assinado com senha por {cab.comandanteNpm || "WANDERLEY CAMPOS PEREIRA"} em {formatDateBr(semanaInfo.dataInicioTerca)}</p>
-                  <p>Documento Autêntico Nº: 39382239-7938 - Validação em https://sigadoc.mt.gov.br</p>
-                </div>
-                <div className="text-right font-extrabold text-black flex items-center gap-1">
-                  <span className="text-[9.5px]">Página 2 de 2</span>
-                  <span className="text-xs font-bold border border-black px-1 ml-1 bg-slate-100">SIGADOC</span>
-                </div>
-              </div>
             </div>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import React from "react";
-import { UnidadeTenant, UsuarioAuth, isComandante } from "../types";
+import { UnidadeTenant, UsuarioAuth, PerfilAcesso, isComandante, isAdmin, temPermissao } from "../types";
 import {
   Calendar,
   Grid,
@@ -10,23 +10,24 @@ import {
   FileText,
   Building2,
   AlertTriangle,
-  User,
   LogOut,
   ShieldCheck,
   Eye,
   Shield,
-  Cloud
+  Cloud,
+  LifeBuoy
 } from "lucide-react";
 
 interface HeaderProps {
   unidades: UnidadeTenant[];
   unidadeAtual: UnidadeTenant;
   onSelectUnidade: (unidade: UnidadeTenant) => void;
-  tabAtiva: "escala" | "mensal" | "conflitos" | "postos" | "militares" | "afastamentos" | "configuracoes";
-  onSelectTab: (tab: "escala" | "mensal" | "conflitos" | "postos" | "militares" | "afastamentos" | "configuracoes") => void;
+  tabAtiva: "escala" | "mensal" | "conflitos" | "postos" | "militares" | "afastamentos" | "configuracoes" | "suporte";
+  onSelectTab: (tab: "escala" | "mensal" | "conflitos" | "postos" | "militares" | "afastamentos" | "configuracoes" | "suporte") => void;
   onAbrirPdf: () => void;
   qtdAlertasAtivos: number;
   usuarioLogado?: UsuarioAuth | null;
+  perfis?: PerfilAcesso[];
   onLogout?: () => void;
 }
 
@@ -39,8 +40,31 @@ export const Header: React.FC<HeaderProps> = ({
   onAbrirPdf,
   qtdAlertasAtivos,
   usuarioLogado,
+  perfis = [],
   onLogout
 }) => {
+  const perfilUsuario = perfis.find((p) => p.id === usuarioLogado?.perfilId);
+  const labelPerfil =
+    perfilUsuario?.nome.toUpperCase() ||
+    (isAdmin(usuarioLogado)
+      ? "ADMINISTRADOR DO SISTEMA"
+      : isComandante(usuarioLogado)
+      ? "COMANDANTE (ACESSO TOTAL)"
+      : "EFETIVO (CONSULTA)");
+
+  const podeVerConflitos =
+    isComandante(usuarioLogado) || temPermissao(usuarioLogado, perfis, "conflitosVisualizar");
+  const podeVerPostos =
+    isComandante(usuarioLogado) || temPermissao(usuarioLogado, perfis, "postosVisualizar");
+  const podeVerMilitares =
+    isComandante(usuarioLogado) || temPermissao(usuarioLogado, perfis, "efetivoVisualizar");
+  const podeVerAfastamentos =
+    isComandante(usuarioLogado) || temPermissao(usuarioLogado, perfis, "afastamentosVisualizar");
+  const podeVerConfig =
+    isComandante(usuarioLogado) || temPermissao(usuarioLogado, perfis, "configuracoesEditar");
+  const podeVerSuporte =
+    isComandante(usuarioLogado) || temPermissao(usuarioLogado, perfis, "suporteAcesso");
+
   return (
     <header className="bg-slate-900/90 text-white border-b border-slate-800 sticky top-0 z-30 shadow-xl backdrop-blur-md">
       {/* Top Banner with Tenant Switcher & Quick Stats */}
@@ -77,12 +101,16 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="flex items-center gap-2 bg-slate-800/90 border border-slate-700/90 rounded-xl px-3 py-1.5 shadow-sm">
               <div
                 className={`p-1 rounded-lg border ${
-                  isComandante(usuarioLogado)
+                  isAdmin(usuarioLogado)
+                    ? "bg-red-500/20 text-red-300 border-red-500/40"
+                    : isComandante(usuarioLogado)
                     ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
                     : "bg-blue-600/20 text-blue-300 border-blue-500/30"
                 }`}
               >
-                {isComandante(usuarioLogado) ? (
+                {isAdmin(usuarioLogado) ? (
+                  <ShieldCheck className="w-4 h-4 text-red-400" />
+                ) : isComandante(usuarioLogado) ? (
                   <Shield className="w-4 h-4 text-amber-400" />
                 ) : (
                   <Eye className="w-4 h-4 text-blue-400" />
@@ -94,12 +122,14 @@ export const Header: React.FC<HeaderProps> = ({
                 </span>
                 <span
                   className={`text-[9.5px] font-bold font-mono leading-tight mt-0.5 ${
-                    isComandante(usuarioLogado) ? "text-amber-400" : "text-blue-400"
+                    isAdmin(usuarioLogado)
+                      ? "text-red-400"
+                      : isComandante(usuarioLogado)
+                      ? "text-amber-400"
+                      : "text-blue-400"
                   }`}
                 >
-                  {isComandante(usuarioLogado)
-                    ? "PERFIL COMANDANTE (Acesso Total)"
-                    : "PERFIL OPERADOR (Consulta)"}
+                  PERFIL {labelPerfil}
                 </span>
               </div>
               {onLogout && (
@@ -136,8 +166,8 @@ export const Header: React.FC<HeaderProps> = ({
             </select>
           </div>
 
-          {/* Active Alerts Pill (Comandante only) */}
-          {isComandante(usuarioLogado) && qtdAlertasAtivos > 0 && (
+          {/* Active Alerts Pill (When allowed) */}
+          {podeVerConflitos && qtdAlertasAtivos > 0 && (
             <button
               onClick={() => onSelectTab("conflitos")}
               className="flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 px-2.5 py-1 rounded-xl text-xs font-bold animate-pulse cursor-pointer transition-all shadow-sm active:scale-95"
@@ -186,76 +216,83 @@ export const Header: React.FC<HeaderProps> = ({
             <span>Projeção Mensal</span>
           </button>
 
-          {isComandante(usuarioLogado) && (
-            <>
-              <button
-                onClick={() => onSelectTab("conflitos")}
-                className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer relative ${
-                  tabAtiva === "conflitos"
-                    ? "bg-amber-500/15 text-amber-300 border border-amber-500/40 font-bold shadow-xs"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-                }`}
-              >
-                <AlertTriangle className={`w-3.5 h-3.5 ${qtdAlertasAtivos > 0 ? "text-amber-400" : ""}`} />
-                <span>Conflitos</span>
-                {qtdAlertasAtivos > 0 && (
-                  <span className="bg-amber-500 text-slate-950 font-black text-[10px] px-1.5 py-0.2 rounded-full ml-0.5 shadow-sm">
-                    {qtdAlertasAtivos}
-                  </span>
-                )}
-              </button>
+          {podeVerConflitos && (
+            <button
+              onClick={() => onSelectTab("conflitos")}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer relative ${
+                tabAtiva === "conflitos"
+                  ? "bg-amber-500/15 text-amber-300 border border-amber-500/40 font-bold shadow-xs"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+              }`}
+            >
+              <AlertTriangle className={`w-3.5 h-3.5 ${qtdAlertasAtivos > 0 ? "text-amber-400" : ""}`} />
+              <span>Conflitos/Registros</span>
+              {qtdAlertasAtivos > 0 && (
+                <span className="bg-amber-500 text-slate-950 font-black text-[10px] px-1.5 py-0.2 rounded-full ml-0.5 shadow-sm">
+                  {qtdAlertasAtivos}
+                </span>
+              )}
+            </button>
+          )}
 
-              <button
-                onClick={() => onSelectTab("postos")}
-                className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
-                  tabAtiva === "postos"
-                    ? "bg-blue-600/15 text-blue-400 border border-blue-500/30 font-bold shadow-xs"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-                }`}
-              >
-                <Briefcase className="w-3.5 h-3.5" />
-                <span>Postos de Serviço (CRUD)</span>
-              </button>
+          {podeVerPostos && (
+            <button
+              onClick={() => onSelectTab("postos")}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+                tabAtiva === "postos"
+                  ? "bg-blue-600/15 text-blue-400 border border-blue-500/30 font-bold shadow-xs"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+              }`}
+            >
+              <Briefcase className="w-3.5 h-3.5" />
+              <span>Postos de Serviço (CRUD)</span>
+            </button>
+          )}
 
-              <button
-                onClick={() => onSelectTab("militares")}
-                className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
-                  tabAtiva === "militares"
-                    ? "bg-blue-600/15 text-blue-400 border border-blue-500/30 font-bold shadow-xs"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-                }`}
-              >
-                <Users className="w-3.5 h-3.5" />
-                <span>Efetivo Militar (Antiguidade)</span>
-              </button>
+          {podeVerMilitares && (
+            <button
+              onClick={() => onSelectTab("militares")}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+                tabAtiva === "militares"
+                  ? "bg-blue-600/15 text-blue-400 border border-blue-500/30 font-bold shadow-xs"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Efetivo Militar (Antiguidade)</span>
+            </button>
+          )}
 
-              <button
-                onClick={() => onSelectTab("afastamentos")}
-                className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
-                  tabAtiva === "afastamentos"
-                    ? "bg-blue-600/15 text-blue-400 border border-blue-500/30 font-bold shadow-xs"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-                }`}
-              >
-                <UserX className="w-3.5 h-3.5" />
-                <span>Férias & Ausências</span>
-              </button>
+          {podeVerAfastamentos && (
+            <button
+              onClick={() => onSelectTab("afastamentos")}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+                tabAtiva === "afastamentos"
+                  ? "bg-blue-600/15 text-blue-400 border border-blue-500/30 font-bold shadow-xs"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+              }`}
+            >
+              <UserX className="w-3.5 h-3.5" />
+              <span>Férias & Ausências</span>
+            </button>
+          )}
 
-              <button
-                onClick={() => onSelectTab("configuracoes")}
-                className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ml-auto ${
-                  tabAtiva === "configuracoes"
-                    ? "bg-blue-600/15 text-blue-400 border border-blue-500/30 font-bold shadow-xs"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-                }`}
-              >
-                <Settings className="w-3.5 h-3.5" />
-                <span>Cabeçalho & Configurações</span>
-              </button>
-            </>
+          {(podeVerConfig || podeVerSuporte) && (
+            <button
+              onClick={() => onSelectTab("configuracoes")}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ml-auto ${
+                tabAtiva === "configuracoes" || tabAtiva === "suporte"
+                  ? "bg-blue-600/15 text-blue-400 border border-blue-500/30 font-bold shadow-xs"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+              }`}
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>Cabeçalho & Configurações</span>
+            </button>
           )}
         </div>
       </div>
     </header>
   );
 };
+

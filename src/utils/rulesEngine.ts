@@ -6,7 +6,8 @@ import {
   AlertaEscala,
   SemanaOperacional,
   TipoPosto,
-  ItemConflito
+  ItemConflito,
+  RegistroFolga96h
 } from "../types";
 
 /**
@@ -409,7 +410,7 @@ export function getMilitaresDoTurnoNoDia(
 
   interface CandidatoTurno {
     militar: Militar;
-    categoria: number; // 1 = Atrasado/Pendente (folga 72h-96h+ não escalado na data sugerida), 2 = Turno do Dia (modulo match), 3 = Outros disponíveis
+    categoria: number; // 1 = Turno do Dia (modulo match), 2 = Atrasado/Pendente (folga 72h-96h+ não escalado na data sugerida), 3 = Outros disponíveis
     restHours: number;
   }
 
@@ -433,7 +434,7 @@ export function getMilitaresDoTurnoNoDia(
 
     // 2. Determine 24x72 rotation modulo
     const pastShifts = historicoEscalas
-      .filter((e) => e.militarId === m.id && (e.endTimeMs - e.startTimeMs > 12000000))
+      .filter((e) => e.militarId === m.id && e.startTimeMs < startTimeMs && (e.endTimeMs - e.startTimeMs > 12000000))
       .sort((a, b) => b.startTimeMs - a.startTimeMs);
 
     let turnMod = idx % 4;
@@ -444,42 +445,33 @@ export function getMilitaresDoTurnoNoDia(
     const eTurnoDoDia = turnMod === targetDayMod;
 
     // 3. Categorize candidate for prioritization:
-    // Category 1: Officer was due for service (restHours >= 71.9h) on a previous day/turn,
-    // but was NOT scheduled in the manual scale. They MUST be prioritized for the next available scale date (within 72h-96h+ window).
-    if (restHours >= 72.0 && !eTurnoDoDia && pastShifts.length > 0) {
+    if (eTurnoDoDia) {
       candidatos.push({
         militar: m,
-        categoria: 1, // Pending/skipped officer with 72h+ rest waiting for scale inclusion
+        categoria: 1, // Standard turn match (24x72 rotation)
         restHours
       });
-    } else if (eTurnoDoDia) {
+    } else if (restHours >= 72.0 && pastShifts.length > 0) {
       candidatos.push({
         militar: m,
-        categoria: 2, // Standard turn match
+        categoria: 2, // Officer with 72h+ rest from another modulo
         restHours
       });
     } else {
       candidatos.push({
         militar: m,
-        categoria: 3, // Other available officers
+        categoria: 3, // Other available officers (e.g. returning from leave)
         restHours
       });
     }
   });
 
   // Sort candidates:
-  // Primary: Categoria (1 = skipped/pending 72h-96h, 2 = standard turn, 3 = available)
-  // Secondary for Categoria 1: Highest rest hours first (most overdue / closest to 96h), then seniority
-  // Secondary for Categoria 2 & 3: Seniority (antiguidadeOrdem)
+  // Primary: Categoria (1 = standard turn, 2 = officer with 72h+ rest, 3 = other available)
+  // Secondary: Seniority (antiguidadeOrdem)
   candidatos.sort((a, b) => {
     if (a.categoria !== b.categoria) {
       return a.categoria - b.categoria;
-    }
-    if (a.categoria === 1) {
-      if (Math.abs(b.restHours - a.restHours) > 1) {
-        return b.restHours - a.restHours;
-      }
-      return a.militar.antiguidadeOrdem - b.militar.antiguidadeOrdem;
     }
     return a.militar.antiguidadeOrdem - b.militar.antiguidadeOrdem;
   });
@@ -590,7 +582,8 @@ export function sugerirMilitarParaPosto(
 
 /**
   * Automated Future Week / Month Projection Engine
-  * Takes the validated base week and projects subsequent operational weeks (Tuesday-Monday).
+  * Takes the validated base scale and projects subsequent operational weeks (Tuesday-Monday).
+  * Projection occurs for the requested operational weeks and respects all manual entries.
   */
 export function projetarEscalasSemanais(
   baseEscalas: EscalaItem[],
@@ -599,25 +592,20 @@ export function projetarEscalasSemanais(
   militares: Militar[],
   postos: PostoServico[],
   afastamentos: Afastamento[],
-  unidadeId: string
+  unidadeId: string,
+  dataReferencia?: string
 ): EscalaItem[] {
   const novasEscalas: EscalaItem[] = [];
   const historicoEscalasCompleto = [...baseEscalas];
 
-  // Identify all manual scale items (not projected) for this unit
+  // Map existing manual / non-projected scale items for this unit
   const manualEscalasUnidade = baseEscalas.filter(
     (e) => e.unidadeId === unidadeId && e.status !== "projetada" && !e.id.startsWith("proj-")
   );
-
-  const datasComEscalaManual = new Set(manualEscalasUnidade.map((e) => e.data));
-
-  let ultimaDataManualStr = "";
-  if (manualEscalasUnidade.length > 0) {
-    ultimaDataManualStr = manualEscalasUnidade.reduce(
-      (max, e) => (e.data > max ? e.data : max),
-      ""
-    );
-  }
+  const manualSlotsMap = new Map<string, EscalaItem>();
+  manualEscalasUnidade.forEach((e) => {
+    manualSlotsMap.set(`${e.data}_${e.postoId}`, e);
+  });
 
   // Postos ativos na ordem oficial: Comandante, Motorista, Patrulheiro, Expediente
   const postosAtivos = sortPostosEmOrdemOficial(
@@ -645,43 +633,43 @@ export function projetarEscalasSemanais(
     for (const diaObj of semanaInfo.dias) {
       const dataStr = diaObj.data;
 
-      // CRUCIAL RULE:
-      // If this date has any manual scale entry OR falls within the manually launched scale period (<= ultimaDataManualStr),
-      // DO NOT project or inject any military officer onto this date.
-      // The manual scale serves as the reference for projecting from the day after onwards.
-      if (datasComEscalaManual.has(dataStr) || (ultimaDataManualStr && dataStr <= ultimaDataManualStr)) {
+      // If a reference date was passed, only project for days strictly after dataReferencia
+      if (dataReferencia && dataStr <= dataReferencia) {
         continue;
       }
 
-      // 1. Handle Expediente Post (Mon-Fri) - Only project if no manual entry exists
+      // 1. Handle Expediente Post (Mon-Fri)
       if (postExp && !diaObj.isFimDeSemana) {
-        const startH = postExp.horaInicio || "07:30";
-        const duracao = postExp.duracaoHoras || 8;
-        const startMs = new Date(`${dataStr}T${startH}:00`).getTime();
-        const endMs = startMs + duracao * 60 * 60 * 1000;
+        const manualExp = manualSlotsMap.get(`${dataStr}_${postExp.id}`);
+        if (!manualExp) {
+          const startH = postExp.horaInicio || "07:30";
+          const duracao = postExp.duracaoHoras || 8;
+          const startMs = new Date(`${dataStr}T${startH}:00`).getTime();
+          const endMs = startMs + duracao * 60 * 60 * 1000;
 
-        if (postExp.militarDesignadoId) {
-          const af = getMilitarAfastamentoNoDia(postExp.militarDesignadoId, dataStr, afastamentos);
-          const militarIdEscolhido = af ? "REFORCO_EXTRAORDINARIO" : postExp.militarDesignadoId;
-          const obs = af
-            ? `Substituído por reforço devido a ${af.tipo.replace("_", " ")}`
-            : "Lançado no Expediente conforme designação da função";
+          if (postExp.militarDesignadoId) {
+            const af = getMilitarAfastamentoNoDia(postExp.militarDesignadoId, dataStr, afastamentos);
+            const militarIdEscolhido = af ? "REFORCO_EXTRAORDINARIO" : postExp.militarDesignadoId;
+            const obs = af
+              ? `Substituído por reforço devido a ${af.tipo.replace("_", " ")}`
+              : "Lançado no Expediente conforme designação da função";
 
-          const novoSlot: EscalaItem = {
-            id: `proj-${dataStr}-${postExp.id}`,
-            unidadeId,
-            data: dataStr,
-            postoId: postExp.id,
-            militarId: militarIdEscolhido,
-            startTimeMs: startMs,
-            endTimeMs: endMs,
-            isPermuta: false,
-            isAjuste: false,
-            status: "projetada",
-            observacoes: obs
-          };
-          novasEscalas.push(novoSlot);
-          historicoEscalasCompleto.push(novoSlot);
+            const novoSlot: EscalaItem = {
+              id: `proj-${dataStr}-${postExp.id}`,
+              unidadeId,
+              data: dataStr,
+              postoId: postExp.id,
+              militarId: militarIdEscolhido,
+              startTimeMs: startMs,
+              endTimeMs: endMs,
+              isPermuta: false,
+              isAjuste: false,
+              status: "projetada",
+              observacoes: obs
+            };
+            novasEscalas.push(novoSlot);
+            historicoEscalasCompleto.push(novoSlot);
+          }
         }
       }
 
@@ -718,73 +706,91 @@ export function projetarEscalasSemanais(
 
       // A) Comandante da GU
       if (postCmt) {
-        const dispCmt = dueMilitares.filter((m) => !isMilitarJaAlocadoNoDia(m.id));
-        if (dispCmt.length >= 1) {
-          cmtMilitar = dispCmt[0];
-          const novoSlot: EscalaItem = {
-            id: `proj-${dataStr}-${postCmt.id}`,
-            unidadeId,
-            data: dataStr,
-            postoId: postCmt.id,
-            militarId: cmtMilitar.id,
-            startTimeMs: startMs24,
-            endTimeMs: endMs24,
-            isPermuta: false,
-            isAjuste: false,
-            status: "projetada",
-            observacoes: `Escalado como Comandante da GU por Antiguidade (${cmtMilitar.graduacao} ${cmtMilitar.nomeGuerra})`
-          };
-          novasEscalas.push(novoSlot);
-          historicoEscalasCompleto.push(novoSlot);
-          escalasNoDia.push(novoSlot);
+        const manualCmt = manualSlotsMap.get(`${dataStr}_${postCmt.id}`);
+        if (manualCmt) {
+          const milObj = militares.find((m) => m.id === manualCmt.militarId);
+          if (milObj) cmtMilitar = milObj;
+        } else {
+          const dispCmt = dueMilitares.filter((m) => !isMilitarJaAlocadoNoDia(m.id));
+          if (dispCmt.length >= 1) {
+            cmtMilitar = dispCmt[0];
+            const novoSlot: EscalaItem = {
+              id: `proj-${dataStr}-${postCmt.id}`,
+              unidadeId,
+              data: dataStr,
+              postoId: postCmt.id,
+              militarId: cmtMilitar.id,
+              startTimeMs: startMs24,
+              endTimeMs: endMs24,
+              isPermuta: false,
+              isAjuste: false,
+              status: "projetada",
+              observacoes: `Escalado como Comandante da GU por Antiguidade (${cmtMilitar.graduacao} ${cmtMilitar.nomeGuerra})`
+            };
+            novasEscalas.push(novoSlot);
+            historicoEscalasCompleto.push(novoSlot);
+            escalasNoDia.push(novoSlot);
+          }
         }
       }
 
       // B) Motorista
       if (postMot) {
-        const dispMot = dueMilitares.filter((m) => !isMilitarJaAlocadoNoDia(m.id));
-        if (dispMot.length >= 1) {
-          motMilitar = dispMot.find((m) => m.cnhAtiva) || dispMot[0];
-          const novoSlot: EscalaItem = {
-            id: `proj-${dataStr}-${postMot.id}`,
-            unidadeId,
-            data: dataStr,
-            postoId: postMot.id,
-            militarId: motMilitar.id,
-            startTimeMs: startMs24,
-            endTimeMs: endMs24,
-            isPermuta: false,
-            isAjuste: false,
-            status: "projetada",
-            observacoes: `Escalado como Motorista (${motMilitar.graduacao} ${motMilitar.nomeGuerra})`
-          };
-          novasEscalas.push(novoSlot);
-          historicoEscalasCompleto.push(novoSlot);
-          escalasNoDia.push(novoSlot);
+        const manualMot = manualSlotsMap.get(`${dataStr}_${postMot.id}`);
+        if (manualMot) {
+          const milObj = militares.find((m) => m.id === manualMot.militarId);
+          if (milObj) motMilitar = milObj;
+        } else {
+          const dispMot = dueMilitares.filter((m) => !isMilitarJaAlocadoNoDia(m.id));
+          if (dispMot.length >= 1) {
+            motMilitar = dispMot.find((m) => m.cnhAtiva) || dispMot[0];
+            const novoSlot: EscalaItem = {
+              id: `proj-${dataStr}-${postMot.id}`,
+              unidadeId,
+              data: dataStr,
+              postoId: postMot.id,
+              militarId: motMilitar.id,
+              startTimeMs: startMs24,
+              endTimeMs: endMs24,
+              isPermuta: false,
+              isAjuste: false,
+              status: "projetada",
+              observacoes: `Escalado como Motorista (${motMilitar.graduacao} ${motMilitar.nomeGuerra})`
+            };
+            novasEscalas.push(novoSlot);
+            historicoEscalasCompleto.push(novoSlot);
+            escalasNoDia.push(novoSlot);
+          }
         }
       }
 
       // C) Patrulheiro -> STRICT RULE: ONLY IF MORE THAN 2 MILITARES FALL ON DUTY ON THIS DAY!
-      if (postPat && dueMilitares.length > 2) {
-        const dispPat = dueMilitares.filter((m) => !isMilitarJaAlocadoNoDia(m.id));
-        if (dispPat.length >= 1) {
-          patMilitar = dispPat[0];
-          const novoSlot: EscalaItem = {
-            id: `proj-${dataStr}-${postPat.id}`,
-            unidadeId,
-            data: dataStr,
-            postoId: postPat.id,
-            militarId: patMilitar.id,
-            startTimeMs: startMs24,
-            endTimeMs: endMs24,
-            isPermuta: false,
-            isAjuste: false,
-            status: "projetada",
-            observacoes: `Posto de Patrulheiro preenchido devido a enquadramento de 3 ou mais militares no mesmo dia (${patMilitar.graduacao} ${patMilitar.nomeGuerra})`
-          };
-          novasEscalas.push(novoSlot);
-          historicoEscalasCompleto.push(novoSlot);
-          escalasNoDia.push(novoSlot);
+      if (postPat) {
+        const manualPat = manualSlotsMap.get(`${dataStr}_${postPat.id}`);
+        if (manualPat) {
+          const milObj = militares.find((m) => m.id === manualPat.militarId);
+          if (milObj) patMilitar = milObj;
+        } else if (dueMilitares.length > 2) {
+          const dispPat = dueMilitares.filter((m) => !isMilitarJaAlocadoNoDia(m.id));
+          if (dispPat.length >= 1) {
+            patMilitar = dispPat[0];
+            const novoSlot: EscalaItem = {
+              id: `proj-${dataStr}-${postPat.id}`,
+              unidadeId,
+              data: dataStr,
+              postoId: postPat.id,
+              militarId: patMilitar.id,
+              startTimeMs: startMs24,
+              endTimeMs: endMs24,
+              isPermuta: false,
+              isAjuste: false,
+              status: "projetada",
+              observacoes: `Posto de Patrulheiro preenchido devido a enquadramento de 3 ou mais militares no mesmo dia (${patMilitar.graduacao} ${patMilitar.nomeGuerra})`
+            };
+            novasEscalas.push(novoSlot);
+            historicoEscalasCompleto.push(novoSlot);
+            escalasNoDia.push(novoSlot);
+          }
         }
       }
     }
@@ -1001,15 +1007,45 @@ export function getTodayString(): string {
 }
 
 /**
+ * Returns the Tuesday date string (YYYY-MM-DD) for the current operational week.
+ */
+export function getCurrentOperationalTuesday(dataReferencia: string = getTodayString()): string {
+  return getOperationalWeekForDate(dataReferencia).dataInicioTerca;
+}
+
+/**
  * Determines whether a given scale date is past ("concluida") or active/future ("aberta").
- * - If dataStr < hojeStr: scale day has passed, status is "concluida" (immutable / non-deletable on reset).
- * - If dataStr >= hojeStr: scale day is today or future, status is "aberta" (editable / resettable if projected).
+ * A escala muda de status de "aberta" para "concluida" ao iniciar o dia às 08:00 do próprio dia da escala (dataStr 08:00:00).
+ * - Se data/hora atual >= dataStr 08:00:00: escala iniciada/em andamento/passada -> "concluida"
+ * - Se data/hora atual < dataStr 08:00:00 (ou dias futuros) -> "aberta"
  */
 export function obterStatusDiaEscala(
   dataStr: string,
-  hojeStr: string = getTodayString()
+  dataHoraReferencia: Date | string = new Date()
 ): "concluida" | "aberta" {
-  return dataStr < hojeStr ? "concluida" : "aberta";
+  if (!dataStr) return "aberta";
+  const refDate =
+    dataHoraReferencia instanceof Date
+      ? dataHoraReferencia
+      : typeof dataHoraReferencia === "string" && dataHoraReferencia.includes("T")
+      ? new Date(dataHoraReferencia)
+      : new Date();
+
+  const [yyyy, mm, dd] = dataStr.split("-").map(Number);
+  // Escala muda de status ao iniciar o dia às 08:00 do próprio dia da escala
+  const dataInicioServico = new Date(yyyy, mm - 1, dd, 8, 0, 0, 0);
+  return refDate.getTime() >= dataInicioServico.getTime() ? "concluida" : "aberta";
+}
+
+/**
+ * Checks if a specific scale item is completed (concluído) based on its endTimeMs or day status.
+ */
+export function isEscalaItemConcluido(
+  item: EscalaItem,
+  dataHoraReferencia: Date | string = new Date()
+): boolean {
+  if (item.status === "concluida") return true;
+  return obterStatusDiaEscala(item.data, dataHoraReferencia) === "concluida";
 }
 
 /**
@@ -1145,5 +1181,194 @@ export function reajustarHierarquiaGuarnicao(
       observacoes: obs
     };
   });
+}
+
+/**
+ * Generates an array of date strings ("YYYY-MM-DD") between dataInicio and dataFim (inclusive).
+ */
+export function gerarDiasFolgaArray(dataInicio: string, dataFim: string): string[] {
+  if (!dataInicio) return [];
+  if (!dataFim) return [dataInicio];
+
+  const dias: string[] = [];
+  const start = new Date(dataInicio + "T12:00:00");
+  const end = new Date(dataFim + "T12:00:00");
+
+  if (start.getTime() > end.getTime()) {
+    return [dataInicio];
+  }
+
+  const current = new Date(start);
+  while (current.getTime() <= end.getTime()) {
+    const yyyy = current.getFullYear();
+    const mm = String(current.getMonth() + 1).padStart(2, "0");
+    const dd = String(current.getDate()).padStart(2, "0");
+    dias.push(`${yyyy}-${mm}-${dd}`);
+    current.setDate(current.getDate() + 1);
+  }
+
+  return dias;
+}
+
+/**
+ * Calculates total 96h rest records registered for a specific military personnel.
+ */
+export function calcularTotalFolgasMilitar(militarId: string, registros: RegistroFolga96h[]): number {
+  if (!militarId || !registros) return 0;
+  return registros.filter((r) => r.militarId === militarId).length;
+}
+
+/**
+ * Returns the last N military officers who had a 96-hour rest applied,
+ * sorted by the most recent rest date (or creation date).
+ */
+export function obterUltimosMilitaresComFolga96h(
+  registros: RegistroFolga96h[],
+  militares: Militar[],
+  limit: number = 3
+): {
+  militar: Militar;
+  ultimoRegistro: RegistroFolga96h;
+  totalFolgasRegistradas: number;
+  todosRegistros: RegistroFolga96h[];
+}[] {
+  if (!registros || registros.length === 0 || !militares || militares.length === 0) {
+    return [];
+  }
+
+  const militaresMap = new Map(militares.map((m) => [m.id, m]));
+
+  // Group records by militarId
+  const porMilitar = new Map<string, RegistroFolga96h[]>();
+  for (const reg of registros) {
+    const list = porMilitar.get(reg.militarId) || [];
+    list.push(reg);
+    porMilitar.set(reg.militarId, list);
+  }
+
+  const resultados: {
+    militar: Militar;
+    ultimoRegistro: RegistroFolga96h;
+    totalFolgasRegistradas: number;
+    todosRegistros: RegistroFolga96h[];
+  }[] = [];
+
+  for (const [militarId, list] of porMilitar.entries()) {
+    const militar = militaresMap.get(militarId);
+    if (!militar) continue;
+
+    // Sort this military's records by dataFim / dataInicio descending
+    const sorted = [...list].sort((a, b) => {
+      const dateA = a.dataFim || a.dataInicio || "";
+      const dateB = b.dataFim || b.dataInicio || "";
+      if (dateA !== dateB) return dateB.localeCompare(dateA);
+      return (b.criadoEm || "").localeCompare(a.criadoEm || "");
+    });
+
+    resultados.push({
+      militar,
+      ultimoRegistro: sorted[0],
+      totalFolgasRegistradas: list.length,
+      todosRegistros: sorted
+    });
+  }
+
+  // Sort by most recent rest date descending
+  resultados.sort((a, b) => {
+    const dateA = a.ultimoRegistro.dataFim || a.ultimoRegistro.dataInicio || "";
+    const dateB = b.ultimoRegistro.dataFim || b.ultimoRegistro.dataInicio || "";
+    if (dateA !== dateB) return dateB.localeCompare(dateA);
+    return (b.ultimoRegistro.criadoEm || "").localeCompare(a.ultimoRegistro.criadoEm || "");
+  });
+
+  return resultados.slice(0, limit);
+}
+
+/**
+ * Scans scales to automatically detect gaps of >= 96 hours of rest between consecutive shifts for each military.
+ */
+export function detectarFolgas96hDasEscalas(
+  unidadeId: string,
+  escalas: EscalaItem[],
+  militares: Militar[],
+  postos: PostoServico[]
+): {
+  militar: Militar;
+  dataInicio: string;
+  dataFim: string;
+  diasFolga: string[];
+  horasDescanso: number;
+  motivo: string;
+  servicoAnteriorData: string;
+  servicoProximoData: string;
+}[] {
+  const postos24hMap = new Set(
+    postos.filter((p) => p.tipoHorario === "24h").map((p) => p.id)
+  );
+
+  const sugestoes: {
+    militar: Militar;
+    dataInicio: string;
+    dataFim: string;
+    diasFolga: string[];
+    horasDescanso: number;
+    motivo: string;
+    servicoAnteriorData: string;
+    servicoProximoData: string;
+  }[] = [];
+
+  for (const m of militares) {
+    // Get all 24h shifts of this military sorted by date
+    const shifts = escalas
+      .filter((e) => e.unidadeId === unidadeId && e.militarId === m.id && postos24hMap.has(e.postoId))
+      .sort((a, b) => a.data.localeCompare(b.data));
+
+    if (shifts.length < 2) continue;
+
+    for (let i = 0; i < shifts.length - 1; i++) {
+      const shift1 = shifts[i];
+      const shift2 = shifts[i + 1];
+
+      const d1 = new Date(shift1.data + "T12:00:00");
+      const d2 = new Date(shift2.data + "T12:00:00");
+      const diffDays = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
+
+      // In 24x72h standard cycle, diff is 4 days (e.g. Tue -> Sat = 4 days = 72h rest).
+      // If diffDays >= 5, that's >= 96h of rest! (e.g. 5 days = 96h, 6 days = 120h)
+      if (diffDays >= 5) {
+        const restHours = (diffDays - 1) * 24;
+        
+        // Days of rest are from d1 + 1 day to d2 - 1 day
+        const folgaStart = new Date(d1);
+        folgaStart.setDate(folgaStart.getDate() + 1);
+        const yyyyStart = folgaStart.getFullYear();
+        const mmStart = String(folgaStart.getMonth() + 1).padStart(2, "0");
+        const ddStart = String(folgaStart.getDate()).padStart(2, "0");
+        const dataInicioFolga = `${yyyyStart}-${mmStart}-${ddStart}`;
+
+        const folgaEnd = new Date(d2);
+        folgaEnd.setDate(folgaEnd.getDate() - 1);
+        const yyyyEnd = folgaEnd.getFullYear();
+        const mmEnd = String(folgaEnd.getMonth() + 1).padStart(2, "0");
+        const ddEnd = String(folgaEnd.getDate()).padStart(2, "0");
+        const dataFimFolga = `${yyyyEnd}-${mmEnd}-${ddEnd}`;
+
+        const diasFolga = gerarDiasFolgaArray(dataInicioFolga, dataFimFolga);
+
+        sugestoes.push({
+          militar: m,
+          dataInicio: dataInicioFolga,
+          dataFim: dataFimFolga,
+          diasFolga,
+          horasDescanso: restHours,
+          motivo: `Folga de ${restHours}h (Intervalo entre serviços de ${formatDateBr(shift1.data)} e ${formatDateBr(shift2.data)})`,
+          servicoAnteriorData: shift1.data,
+          servicoProximoData: shift2.data
+        });
+      }
+    }
+  }
+
+  return sugestoes;
 }
 

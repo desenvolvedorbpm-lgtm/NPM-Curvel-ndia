@@ -1,0 +1,26 @@
+{
+  "entities": {
+    "AppData": {
+      "title": "AppData",
+      "description": "Application collections storage for PMMT Escalas",
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "description": "Array of collection items"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Timestamp of last modification"
+        }
+      },
+      "required": ["items", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/app_data/{collectionName}": {
+      "schema": "AppData",
+      "description": "Documents storing app collections (escalas, unidades, postos, militares, afastamentos, usuarios, perfisAcesso)"
+    }
+  }
+}

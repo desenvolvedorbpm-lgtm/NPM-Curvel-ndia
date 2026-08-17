@@ -7,7 +7,9 @@ import {
   Militar,
   Afastamento,
   EscalaItem,
-  UsuarioAuth
+  UsuarioAuth,
+  PerfilAcesso,
+  RegistroFolga96h
 } from "../types";
 
 const COLLECTION_NAME = "app_data";
@@ -20,6 +22,8 @@ export interface AppDatabaseState {
   afastamentos: Afastamento[];
   escalas: EscalaItem[];
   usuarios: UsuarioAuth[];
+  perfisAcesso: PerfilAcesso[];
+  registrosFolga96h: RegistroFolga96h[];
 }
 
 // In-memory serialized cache to prevent unnecessary writes
@@ -144,13 +148,42 @@ export async function loadStaleCollection<T>(
 }
 
 /**
+ * Recursively removes all `undefined` values and converts objects to Firestore-safe structures.
+ */
+function sanitizeForFirestore<T>(data: T): T {
+  if (data === undefined) {
+    return null as unknown as T;
+  }
+  if (data === null || typeof data !== "object") {
+    return data;
+  }
+  try {
+    return JSON.parse(JSON.stringify(data));
+  } catch (_) {
+    if (Array.isArray(data)) {
+      return data
+        .filter((item) => item !== undefined)
+        .map((item) => sanitizeForFirestore(item)) as unknown as T;
+    }
+    const cleanObj: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data as Record<string, any>)) {
+      if (value !== undefined) {
+        cleanObj[key] = sanitizeForFirestore(value);
+      }
+    }
+    return cleanObj as unknown as T;
+  }
+}
+
+/**
  * Save collection items to IndexedDB & LocalStorage instantly, and Firestore debounced.
  */
 export async function saveCollectionToFirestore<T>(
   key: keyof AppDatabaseState,
   data: T[]
 ): Promise<void> {
-  const serialized = JSON.stringify(data);
+  const sanitized = sanitizeForFirestore(data);
+  const serialized = JSON.stringify(sanitized);
 
   if (lastCache[key] === serialized) {
     return;
@@ -161,7 +194,7 @@ export async function saveCollectionToFirestore<T>(
   setLocalTimestamp(key, now);
 
   // Instant local persistence to IndexedDB and LocalStorage
-  setItemIDB(key, data, now).catch(() => {});
+  setItemIDB(key, sanitized, now).catch(() => {});
   try {
     if (typeof localStorage !== "undefined") {
       localStorage.setItem(`pmmt_app_${key}`, serialized);
@@ -184,7 +217,7 @@ export async function saveCollectionToFirestore<T>(
     try {
       const docRef = doc(db, COLLECTION_NAME, key);
       await setDoc(docRef, {
-        items: data,
+        items: sanitized,
         updatedAt: now
       });
     } catch (error: any) {
@@ -212,10 +245,14 @@ export function subscribeToCollection<T>(
   initialLocalItems: T[],
   onUpdate: (items: T[]) => void
 ): () => void {
-  // First, asynchronously populate from IndexedDB/LocalStorage if available
+  // First, asynchronously populate from IndexedDB/LocalStorage if available (stale-while-revalidate)
   loadStaleCollection<T>(key, initialLocalItems).then((staleItems) => {
     if (staleItems && staleItems.length > 0) {
-      onUpdate(staleItems);
+      const serialized = JSON.stringify(staleItems);
+      if (lastCache[key] !== serialized) {
+        lastCache[key] = serialized;
+        onUpdate(staleItems);
+      }
     }
   });
 
@@ -254,15 +291,17 @@ export function subscribeToCollection<T>(
             // Stale-While-Revalidate: Adopt remote items ONLY if remote is strictly newer
             if (remoteTs > localTs) {
               const serializedRemote = JSON.stringify(data.items);
-              lastCache[key] = serializedRemote;
-              setLocalTimestamp(key, remoteTs);
-              setItemIDB(key, data.items as T[], remoteTs).catch(() => {});
-              try {
-                if (typeof localStorage !== "undefined") {
-                  localStorage.setItem(`pmmt_app_${key}`, serializedRemote);
-                }
-              } catch (_) {}
-              onUpdate(data.items as T[]);
+              if (lastCache[key] !== serializedRemote) {
+                lastCache[key] = serializedRemote;
+                setLocalTimestamp(key, remoteTs);
+                setItemIDB(key, data.items as T[], remoteTs).catch(() => {});
+                try {
+                  if (typeof localStorage !== "undefined") {
+                    localStorage.setItem(`pmmt_app_${key}`, serializedRemote);
+                  }
+                } catch (_) {}
+                onUpdate(data.items as T[]);
+              }
             }
           }
         }

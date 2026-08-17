@@ -8,6 +8,7 @@ interface MilitaryManagerProps {
   onAddMilitar: (militar: Militar) => void;
   onUpdateMilitar: (militar: Militar) => void;
   onDeleteMilitar: (militarId: string) => void;
+  onUpdateMilitaresList?: (novosMilitares: Militar[]) => void;
 }
 
 const GRADUACOES: GraduacaoPM[] = [
@@ -25,7 +26,8 @@ export const MilitaryManager: React.FC<MilitaryManagerProps> = ({
   militares,
   onAddMilitar,
   onUpdateMilitar,
-  onDeleteMilitar
+  onDeleteMilitar,
+  onUpdateMilitaresList
 }) => {
   const militaresUnidade = militares
     .filter((m) => m.unidadeId === unidadeId)
@@ -41,6 +43,39 @@ export const MilitaryManager: React.FC<MilitaryManagerProps> = ({
   const [rgPmmt, setRgPmmt] = useState("");
   const [antiguidadeOrdem, setAntiguidadeOrdem] = useState(1);
   const [cnhAtiva, setCnhAtiva] = useState(true);
+
+  // Helper to normalize and reindex seniority 1..N
+  const reindexarSenioridade = (lista: Militar[]): Militar[] => {
+    const ordenados = [...lista].sort((a, b) => a.antiguidadeOrdem - b.antiguidadeOrdem);
+    return ordenados.map((m, idx) => ({
+      ...m,
+      antiguidadeOrdem: idx + 1
+    }));
+  };
+
+  const handleMoverAntiguidade = (militarId: string, direcao: "subir" | "descer") => {
+    const idx = militaresUnidade.findIndex((m) => m.id === militarId);
+    if (idx === -1) return;
+    if (direcao === "subir" && idx === 0) return;
+    if (direcao === "descer" && idx === militaresUnidade.length - 1) return;
+
+    const targetIdx = direcao === "subir" ? idx - 1 : idx + 1;
+    const copia = [...militaresUnidade];
+    const [removido] = copia.splice(idx, 1);
+    copia.splice(targetIdx, 0, removido);
+
+    const normalizados = reindexarSenioridade(copia);
+
+    // Merge with other units if any
+    const outrosMilitares = militares.filter((m) => m.unidadeId !== unidadeId);
+    const listaCompleta = [...outrosMilitares, ...normalizados];
+
+    if (onUpdateMilitaresList) {
+      onUpdateMilitaresList(listaCompleta);
+    } else {
+      normalizados.forEach((m) => onUpdateMilitar(m));
+    }
+  };
 
   const abrirNovoModal = () => {
     setEditando(null);
@@ -69,15 +104,30 @@ export const MilitaryManager: React.FC<MilitaryManagerProps> = ({
     if (!nomeGuerra.trim() || !rgPmmt.trim()) return;
 
     if (editando) {
-      onUpdateMilitar({
+      const militarAtualizado: Militar = {
         ...editando,
         graduacao,
         nomeGuerra: nomeGuerra.toUpperCase(),
         nomeCompleto,
         rgPmmt,
-        antiguidadeOrdem,
+        antiguidadeOrdem: Number(antiguidadeOrdem),
         cnhAtiva
-      });
+      };
+
+      // Reorganize list inserting at new position
+      const outros = militaresUnidade.filter((m) => m.id !== editando.id);
+      const posDesejada = Math.max(1, Math.min(Number(antiguidadeOrdem), outros.length + 1));
+      outros.splice(posDesejada - 1, 0, militarAtualizado);
+
+      const normalizados = reindexarSenioridade(outros);
+      const outrosMilitares = militares.filter((m) => m.unidadeId !== unidadeId);
+      const listaCompleta = [...outrosMilitares, ...normalizados];
+
+      if (onUpdateMilitaresList) {
+        onUpdateMilitaresList(listaCompleta);
+      } else {
+        onUpdateMilitar(militarAtualizado);
+      }
     } else {
       const novo: Militar = {
         id: `mil-${Date.now()}`,
@@ -86,12 +136,25 @@ export const MilitaryManager: React.FC<MilitaryManagerProps> = ({
         nomeGuerra: nomeGuerra.toUpperCase(),
         nomeCompleto,
         rgPmmt,
-        antiguidadeOrdem,
+        antiguidadeOrdem: Number(antiguidadeOrdem),
         cnhAtiva,
         aptidoesPosto: ["posto-cmt-gu", "posto-motorista", "posto-patrulheiro", "posto-expediente"],
         ativo: true
       };
-      onAddMilitar(novo);
+
+      const copia = [...militaresUnidade];
+      const posDesejada = Math.max(1, Math.min(Number(antiguidadeOrdem), copia.length + 1));
+      copia.splice(posDesejada - 1, 0, novo);
+
+      const normalizados = reindexarSenioridade(copia);
+      const outrosMilitares = militares.filter((m) => m.unidadeId !== unidadeId);
+      const listaCompleta = [...outrosMilitares, ...normalizados];
+
+      if (onUpdateMilitaresList) {
+        onUpdateMilitaresList(listaCompleta);
+      } else {
+        onAddMilitar(novo);
+      }
     }
     setModalAberto(false);
   };
@@ -140,9 +203,39 @@ export const MilitaryManager: React.FC<MilitaryManagerProps> = ({
                 return (
                   <tr key={m.id} className="hover:bg-slate-800/40 transition-colors">
                     <td className="py-3 px-4 text-center font-bold text-slate-100">
-                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-950 border border-slate-800 text-slate-200">
-                        #{m.antiguidadeOrdem}
-                      </span>
+                      <div className="inline-flex items-center gap-1">
+                        <div className="flex flex-col gap-0.5">
+                          <button
+                            type="button"
+                            disabled={isMaisAntigo}
+                            onClick={() => handleMoverAntiguidade(m.id, "subir")}
+                            className={`p-1 rounded transition-colors ${
+                              isMaisAntigo
+                                ? "text-slate-700 cursor-not-allowed"
+                                : "text-slate-400 hover:text-amber-300 hover:bg-slate-800 cursor-pointer"
+                            }`}
+                            title="Subir Antiguidade (Tornar Mais Antigo)"
+                          >
+                            <ArrowUp className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isMaisModerno}
+                            onClick={() => handleMoverAntiguidade(m.id, "descer")}
+                            className={`p-1 rounded transition-colors ${
+                              isMaisModerno
+                                ? "text-slate-700 cursor-not-allowed"
+                                : "text-slate-400 hover:text-blue-300 hover:bg-slate-800 cursor-pointer"
+                            }`}
+                            title="Descer Antiguidade (Tornar Mais Moderno)"
+                          >
+                            <ArrowDown className="w-3 h-3" />
+                          </button>
+                        </div>
+                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-950 border border-slate-800 text-slate-200 font-mono font-bold">
+                          #{m.antiguidadeOrdem}
+                        </span>
+                      </div>
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">

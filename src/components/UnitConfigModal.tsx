@@ -1,17 +1,35 @@
 import React, { useState } from "react";
-import { UnidadeTenant, CabecalhoUnidade, HorarioExpediente } from "../types";
-import { Settings, Image, Building, Check, Plus, Trash2, Clock, Lock } from "lucide-react";
+import { UnidadeTenant, CabecalhoUnidade, HorarioExpediente, PerfilAcesso, UsuarioAuth, Militar, isComandante, temPermissao } from "../types";
+import { Settings, Image, Building, Check, Plus, Trash2, Clock, Lock, LifeBuoy, ShieldCheck } from "lucide-react";
 import { calcularInformativoNumero } from "../utils/rulesEngine";
+import { SupportManager } from "./SupportManager";
 
 interface UnitConfigModalProps {
   unidade: UnidadeTenant;
   onSalvarUnidade: (unidadeAtualizada: UnidadeTenant) => void;
+  // Support & Access Control props integrated inside Configurações
+  perfis?: PerfilAcesso[];
+  usuarios?: UsuarioAuth[];
+  militares?: Militar[];
+  usuarioLogado?: UsuarioAuth | null;
+  onUpdatePerfis?: (novosPerfis: PerfilAcesso[]) => void;
+  onUpdateUsuarios?: (novosUsuarios: UsuarioAuth[]) => void;
 }
 
 export const UnitConfigModal: React.FC<UnitConfigModalProps> = ({
   unidade,
-  onSalvarUnidade
+  onSalvarUnidade,
+  perfis = [],
+  usuarios = [],
+  militares = [],
+  usuarioLogado = null,
+  onUpdatePerfis,
+  onUpdateUsuarios
 }) => {
+  const podeVerSuporte =
+    isComandante(usuarioLogado) || temPermissao(usuarioLogado, perfis, "suporteAcesso");
+
+  const [secaoAtiva, setSecaoAtiva] = useState<"cabecalho" | "suporte">("cabecalho");
   const [nome, setNome] = useState(unidade.nome);
   const [sigla, setSigla] = useState(unidade.sigla);
 
@@ -98,32 +116,77 @@ export const UnitConfigModal: React.FC<UnitConfigModalProps> = ({
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-      <div className="bg-slate-900 p-6 rounded-xl border border-slate-800 shadow-xl flex items-center justify-between">
+      {/* Top Banner with Section Switcher */}
+      <div className="bg-slate-900 p-5 rounded-xl border border-slate-800 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
             <Settings className="w-5 h-5 text-blue-400" />
-            Configurações e Cabeçalho da Unidade (PDF Dinâmico)
+            Cabeçalho e Configurações
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Personalize as informações oficiais do cabeçalho de impressão, brasão/logo da unidade, oficiais comandantes e horário do expediente comercial.
+            Personalize as informações oficiais da unidade, parâmetros de impressão do PDF e gestão de segurança/suporte.
           </p>
         </div>
 
-        {salvoFeedback && (
-          <div className="bg-emerald-950/80 text-emerald-300 text-xs font-bold px-3 py-1.5 rounded-lg border border-emerald-800 flex items-center gap-1.5 animate-bounce">
-            <Check className="w-4 h-4 text-emerald-400" />
-            <span>Configurações Salvas!</span>
-          </div>
-        )}
+        {/* Section Switcher Tabs */}
+        <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 self-start md:self-auto">
+          <button
+            type="button"
+            onClick={() => setSecaoAtiva("cabecalho")}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+              secaoAtiva === "cabecalho"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Building className="w-3.5 h-3.5" />
+            <span>Cabeçalho & Parâmetros</span>
+          </button>
+
+          {podeVerSuporte && (
+            <button
+              type="button"
+              onClick={() => setSecaoAtiva("suporte")}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                secaoAtiva === "suporte"
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <LifeBuoy className="w-3.5 h-3.5 text-blue-300" />
+              <span>Suporte & Acesso</span>
+            </button>
+          )}
+        </div>
       </div>
 
-      <form onSubmit={handleSalvar} className="space-y-6">
-        {/* Unit Identity */}
-        <div className="bg-slate-900 p-6 rounded-xl border border-slate-800 shadow-xl space-y-4">
-          <h3 className="text-sm font-bold text-slate-100 border-b border-slate-800 pb-2 flex items-center gap-2">
-            <Building className="w-4 h-4 text-blue-400" />
-            Identificação do Tenant / Unidade PM
-          </h3>
+      {secaoAtiva === "suporte" && (
+        <SupportManager
+          perfis={perfis}
+          usuarios={usuarios}
+          militares={militares}
+          usuarioLogado={usuarioLogado}
+          onUpdatePerfis={onUpdatePerfis || (() => {})}
+          onUpdateUsuarios={onUpdateUsuarios || (() => {})}
+        />
+      )}
+
+      {secaoAtiva === "cabecalho" && (
+        <>
+          {salvoFeedback && (
+            <div className="bg-emerald-950/80 text-emerald-300 text-xs font-bold px-4 py-2.5 rounded-xl border border-emerald-800 flex items-center gap-2 animate-bounce shadow-lg">
+              <Check className="w-4 h-4 text-emerald-400" />
+              <span>Configurações e Cabeçalho salvos com sucesso!</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSalvar} className="space-y-6">
+            {/* Unit Identity */}
+            <div className="bg-slate-900 p-6 rounded-xl border border-slate-800 shadow-xl space-y-4">
+              <h3 className="text-sm font-bold text-slate-100 border-b border-slate-800 pb-2 flex items-center gap-2">
+                <Building className="w-4 h-4 text-blue-400" />
+                Identificação do Tenant / Unidade PM
+              </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -388,6 +451,8 @@ export const UnitConfigModal: React.FC<UnitConfigModalProps> = ({
           </button>
         </div>
       </form>
+      </>
+      )}
     </div>
   );
 };

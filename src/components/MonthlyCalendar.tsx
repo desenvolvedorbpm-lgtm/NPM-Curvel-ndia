@@ -9,7 +9,11 @@ import {
 import {
   formatDateBr,
   sortPostosEmOrdemOficial,
-  getTodayString
+  getTodayString,
+  obterStatusDiaEscala,
+  isEscalaItemConcluido,
+  validarRegrasEscala,
+  reajustarHierarquiaGuarnicao
 } from "../utils/rulesEngine";
 import {
   Calendar as CalendarIcon,
@@ -28,8 +32,10 @@ import {
   Shield,
   Eye,
   CheckCircle2,
-  AlertCircle,
-  Lock
+  AlertTriangle,
+  XCircle,
+  Trash2,
+  Car
 } from "lucide-react";
 
 interface MonthlyCalendarProps {
@@ -40,7 +46,7 @@ interface MonthlyCalendarProps {
   afastamentos: Afastamento[];
   onProjetarFuturo: (dataInicioTerca: string, semanas: number) => void;
   onResetarProjecao?: () => void;
-  onUpdateEscalas?: (novasEscalas: EscalaItem[]) => void;
+  onUpdateEscalas: (novasEscalas: EscalaItem[]) => void;
   isComandante?: boolean;
 }
 
@@ -73,36 +79,54 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
   afastamentos,
   onProjetarFuturo,
   onResetarProjecao,
+  onUpdateEscalas,
   isComandante = true
 }) => {
   // Current month anchor (e.g. 2026-08)
   const [mesAno, setMesAno] = useState("2026-08");
-  const [diaSelecionadoModal, setDiaSelecionadoModal] = useState<DiaProjecaoInfo | null>(null);
+  const [dataStrSelecionada, setDataStrSelecionada] = useState<string | null>(null);
 
   // Density & Filter state for layout customization
   const [modoDensidade, setModoDensidade] = useState<ModoDensidade>("padrao");
   const [filtroExibicao, setFiltroExibicao] = useState<FiltroExibicao>("todos");
+
+  // Drag and Drop States
+  const [draggedMilitarId, setDraggedMilitarId] = useState<string | null>(null);
+  const [draggedSourceItemId, setDraggedSourceItemId] = useState<string | null>(null);
+  const [dragOverDayStr, setDragOverDayStr] = useState<string | null>(null);
+  const [dragOverSlotKey, setDragOverSlotKey] = useState<string | null>(null);
+  const [dropFeedback, setDropFeedback] = useState<{
+    tipo: "sucesso" | "alerta" | "bloqueio";
+    mensagem: string;
+  } | null>(null);
 
   const [anoStr, mesStr] = mesAno.split("-");
   const ano = parseInt(anoStr, 10);
   const mes = parseInt(mesStr, 10);
 
   // Generate days in selected month
-  const totalDias = new Date(ano, mes, 0).getDate();
-  const primeiroDiaSemana = new Date(ano, mes - 1, 1).getDay(); // 0 = Sun
+  const totalDias = useMemo(() => new Date(ano, mes, 0).getDate(), [ano, mes]);
+  const primeiroDiaSemana = useMemo(() => new Date(ano, mes - 1, 1).getDay(), [ano, mes]); // 0 = Sun
 
-  const diasDoMes: string[] = [];
-  for (let d = 1; d <= totalDias; d++) {
-    const dd = String(d).padStart(2, "0");
-    const mm = String(mes).padStart(2, "0");
-    diasDoMes.push(`${ano}-${mm}-${dd}`);
-  }
+  const diasDoMes = useMemo(() => {
+    const arr: string[] = [];
+    for (let d = 1; d <= totalDias; d++) {
+      const dd = String(d).padStart(2, "0");
+      const mm = String(mes).padStart(2, "0");
+      arr.push(`${ano}-${mm}-${dd}`);
+    }
+    return arr;
+  }, [ano, mes, totalDias]);
 
   // Active posts sorted in official order: Comandante -> Motorista -> Patrulheiro -> Expediente
-  const postosUnidade = sortPostosEmOrdemOficial(
-    postos.filter((p) => p.unidadeId === unidade.id && p.ativo)
+  const postosUnidade = useMemo(
+    () => sortPostosEmOrdemOficial(postos.filter((p) => p.unidadeId === unidade.id && p.ativo)),
+    [postos, unidade.id]
   );
-  const militaresUnidade = militares.filter((m) => m.unidadeId === unidade.id && m.ativo);
+  const militaresUnidade = useMemo(
+    () => militares.filter((m) => m.unidadeId === unidade.id && m.ativo),
+    [militares, unidade.id]
+  );
 
   const handleMesAnterior = () => {
     let m = mes - 1;
@@ -192,6 +216,9 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
     return mapa;
   }, [diasDoMes, escalas, afastamentos, unidade.id, postosUnidade, militares]);
 
+  // Derived selected day modal info (safe, zero extra re-render loops)
+  const diaSelecionadoModal = dataStrSelecionada ? mapaProjecaoDias.get(dataStrSelecionada) || null : null;
+
   // Aggregate stats for selected month
   const estatisticasMes = useMemo(() => {
     let totalEscalas = 0;
@@ -208,6 +235,393 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
       totalMilitares: militaresUnidade.length
     };
   }, [mapaProjecaoDias, militaresUnidade]);
+
+  // DRAG & DROP HANDLERS
+  const handleDragStart = (militarId: string, sourceItemId?: string) => {
+    setDraggedMilitarId(militarId);
+    setDraggedSourceItemId(sourceItemId || null);
+  };
+
+  const handleDragOverDay = (e: React.DragEvent, dataStr: string, slotKey?: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragOverDayStr !== dataStr) {
+      setDragOverDayStr(dataStr);
+    }
+    if (slotKey && dragOverSlotKey !== slotKey) {
+      setDragOverSlotKey(slotKey);
+    }
+  };
+
+  const handleDropOnDayOrSlot = (targetDataStr: string, targetPostoId?: string) => {
+    setDragOverDayStr(null);
+    setDragOverSlotKey(null);
+    if (!draggedMilitarId) return;
+
+    const sourceItem = draggedSourceItemId
+      ? escalas.find((e) => e.id === draggedSourceItemId)
+      : null;
+
+    const dataOrigem = sourceItem ? sourceItem.data : null;
+    const postoOrigem = sourceItem
+      ? postos.find((p) => p.id === sourceItem.postoId) || null
+      : null;
+
+    // Determine target posto
+    const isTargetFimDeSemana = (() => {
+      const dow = new Date(targetDataStr + "T12:00:00").getDay();
+      return dow === 0 || dow === 6;
+    })();
+
+    const postosValidosTarget = postosUnidade.filter(
+      (p) => !(p.tipoHorario === "expediente" && isTargetFimDeSemana)
+    );
+
+    if (postosValidosTarget.length === 0) {
+      setDropFeedback({
+        tipo: "bloqueio",
+        mensagem: "Nenhum posto de serviço disponível nesta data."
+      });
+      setTimeout(() => setDropFeedback(null), 4000);
+      setDraggedMilitarId(null);
+      setDraggedSourceItemId(null);
+      return;
+    }
+
+    let targetPosto: PostoServico | null = null;
+    if (targetPostoId) {
+      targetPosto = postosValidosTarget.find((p) => p.id === targetPostoId) || null;
+    }
+
+    // If no specific post was dropped onto, find the first vacant post or default to first available
+    if (!targetPosto) {
+      const escalasTargetDia = escalas.filter(
+        (e) => e.unidadeId === unidade.id && e.data === targetDataStr && (sourceItem ? e.id !== sourceItem.id : true)
+      );
+      const postosOcupadosIds = new Set(escalasTargetDia.map((e) => e.postoId));
+      targetPosto = postosValidosTarget.find((p) => !postosOcupadosIds.has(p.id)) || postosValidosTarget[0];
+    }
+
+    if (!targetPosto) return;
+
+    const itemExistenteTarget = escalas.find(
+      (e) => e.unidadeId === unidade.id && e.data === targetDataStr && e.postoId === targetPosto!.id
+    );
+
+    // If dropping onto the exact same slot it came from, do nothing
+    if (sourceItem && itemExistenteTarget?.id === sourceItem.id) {
+      setDraggedMilitarId(null);
+      setDraggedSourceItemId(null);
+      return;
+    }
+
+    let startH = targetPosto.horaInicio || "08:00";
+    let duracao = targetPosto.duracaoHoras || 24;
+    const startTimeMs = new Date(`${targetDataStr}T${startH}:00`).getTime();
+    const endTimeMs = startTimeMs + duracao * 60 * 60 * 1000;
+
+    // Special handling for Reforço Extraordinário
+    if (draggedMilitarId === "REFORCO_EXTRAORDINARIO") {
+      const escalasSemOrigem = sourceItem
+        ? escalas.filter((e) => e.id !== sourceItem.id)
+        : escalas;
+
+      let novasEscalas = [...escalasSemOrigem];
+
+      if (itemExistenteTarget) {
+        novasEscalas = novasEscalas.map((e) =>
+          e.id === itemExistenteTarget.id
+            ? {
+                ...e,
+                militarId: "REFORCO_EXTRAORDINARIO",
+                startTimeMs,
+                endTimeMs,
+                isAjuste: true,
+                status: "efetivada"
+              }
+            : e
+        );
+      } else {
+        const novoItem: EscalaItem = {
+          id: `esc-${targetDataStr}-${targetPosto.id}`,
+          unidadeId: unidade.id,
+          data: targetDataStr,
+          postoId: targetPosto.id,
+          militarId: "REFORCO_EXTRAORDINARIO",
+          startTimeMs,
+          endTimeMs,
+          isPermuta: false,
+          isAjuste: true,
+          status: "efetivada"
+        };
+        novasEscalas.push(novoItem);
+      }
+
+      novasEscalas = reajustarHierarquiaGuarnicao(
+        novasEscalas,
+        targetDataStr,
+        unidade.id,
+        militaresUnidade,
+        postos
+      );
+      if (dataOrigem && dataOrigem !== targetDataStr) {
+        novasEscalas = reajustarHierarquiaGuarnicao(
+          novasEscalas,
+          dataOrigem,
+          unidade.id,
+          militaresUnidade,
+          postos
+        );
+      }
+
+      onUpdateEscalas(novasEscalas);
+      setDropFeedback({
+        tipo: "sucesso",
+        mensagem: sourceItem
+          ? `Reforço Extraordinário movido de ${formatDateBr(dataOrigem!)} para o dia ${formatDateBr(targetDataStr)} (${targetPosto.sigla}).`
+          : `Reforço Extraordinário alocado com sucesso no dia ${formatDateBr(targetDataStr)} (${targetPosto.sigla}).`
+      });
+      setTimeout(() => setDropFeedback(null), 3500);
+      setDraggedMilitarId(null);
+      setDraggedSourceItemId(null);
+      return;
+    }
+
+    const militar = militaresUnidade.find((m) => m.id === draggedMilitarId);
+    if (!militar) return;
+
+    // CASE 1: SWAP between two occupied slots (Permuta / Troca entre dias ou postos no mês)
+    if (sourceItem && itemExistenteTarget && itemExistenteTarget.militarId) {
+      const militarAlvo = militaresUnidade.find((m) => m.id === itemExistenteTarget.militarId);
+      const isAlvoReforco = itemExistenteTarget.militarId === "REFORCO_EXTRAORDINARIO";
+
+      const escalasSemAmbos = escalas.filter(
+        (e) => e.id !== sourceItem.id && e.id !== itemExistenteTarget.id
+      );
+
+      const alertasA = validarRegrasEscala(
+        militar,
+        targetPosto,
+        targetDataStr,
+        startTimeMs,
+        endTimeMs,
+        escalasSemAmbos,
+        afastamentos
+      );
+
+      const temBloqueioA = alertasA.some(
+        (a) => a.tipo === "BLOQUEIO_24H" || a.tipo === "INDISPONIVEL_AFASTADO"
+      );
+
+      if (temBloqueioA) {
+        const msg = alertasA.find((a) => a.tipo === "BLOQUEIO_24H" || a.tipo === "INDISPONIVEL_AFASTADO")?.mensagem;
+        setDropFeedback({
+          tipo: "bloqueio",
+          mensagem: msg || `Bloqueio: ${militar.graduacao} ${militar.nomeGuerra} não pode assumir a data ${formatDateBr(targetDataStr)}.`
+        });
+        setTimeout(() => setDropFeedback(null), 5000);
+        setDraggedMilitarId(null);
+        setDraggedSourceItemId(null);
+        return;
+      }
+
+      if (militarAlvo && postoOrigem && dataOrigem) {
+        const alertasB = validarRegrasEscala(
+          militarAlvo,
+          postoOrigem,
+          dataOrigem,
+          sourceItem.startTimeMs,
+          sourceItem.endTimeMs,
+          escalasSemAmbos,
+          afastamentos
+        );
+
+        const temBloqueioB = alertasB.some(
+          (a) => a.tipo === "BLOQUEIO_24H" || a.tipo === "INDISPONIVEL_AFASTADO"
+        );
+
+        if (temBloqueioB) {
+          const msg = alertasB.find((a) => a.tipo === "BLOQUEIO_24H" || a.tipo === "INDISPONIVEL_AFASTADO")?.mensagem;
+          setDropFeedback({
+            tipo: "bloqueio",
+            mensagem: msg || `Bloqueio: ${militarAlvo.graduacao} ${militarAlvo.nomeGuerra} não pode assumir o dia ${formatDateBr(dataOrigem)}.`
+          });
+          setTimeout(() => setDropFeedback(null), 5000);
+          setDraggedMilitarId(null);
+          setDraggedSourceItemId(null);
+          return;
+        }
+      }
+
+      // Realizar Permuta Recíproca
+      let novasEscalas = escalas.map((e) => {
+        if (e.id === itemExistenteTarget.id) {
+          return {
+            ...e,
+            militarId: militar.id,
+            startTimeMs,
+            endTimeMs,
+            isPermuta: true,
+            isAjuste: true,
+            status: "efetivada"
+          };
+        }
+        if (e.id === sourceItem.id) {
+          return {
+            ...e,
+            militarId: isAlvoReforco ? "REFORCO_EXTRAORDINARIO" : (militarAlvo?.id || "REFORCO_EXTRAORDINARIO"),
+            isPermuta: true,
+            isAjuste: true,
+            status: "efetivada"
+          };
+        }
+        return e;
+      });
+
+      novasEscalas = reajustarHierarquiaGuarnicao(
+        novasEscalas,
+        targetDataStr,
+        unidade.id,
+        militaresUnidade,
+        postos
+      );
+      if (dataOrigem && dataOrigem !== targetDataStr) {
+        novasEscalas = reajustarHierarquiaGuarnicao(
+          novasEscalas,
+          dataOrigem,
+          unidade.id,
+          militaresUnidade,
+          postos
+        );
+      }
+
+      onUpdateEscalas(novasEscalas);
+      const nomeB = militarAlvo ? `${militarAlvo.graduacao} ${militarAlvo.nomeGuerra}` : "Reforço Extraordinário";
+      setDropFeedback({
+        tipo: "sucesso",
+        mensagem: `Permuta realizada: ${militar.graduacao} ${militar.nomeGuerra} (${formatDateBr(targetDataStr)}) ⇄ ${nomeB} (${dataOrigem ? formatDateBr(dataOrigem) : ""}).`
+      });
+      setTimeout(() => setDropFeedback(null), 4500);
+      setDraggedMilitarId(null);
+      setDraggedSourceItemId(null);
+      return;
+    }
+
+    // CASE 2: MOVE to an empty slot or NEW ALLOCATION from Roster Bar
+    const escalasSemOrigem = sourceItem
+      ? escalas.filter((e) => e.id !== sourceItem.id)
+      : escalas;
+
+    const alertas = validarRegrasEscala(
+      militar,
+      targetPosto,
+      targetDataStr,
+      startTimeMs,
+      endTimeMs,
+      escalasSemOrigem,
+      afastamentos
+    );
+
+    const temBloqueio = alertas.some(
+      (a) => a.tipo === "BLOQUEIO_24H" || a.tipo === "INDISPONIVEL_AFASTADO"
+    );
+
+    if (temBloqueio) {
+      const bloqueioMsg = alertas.find((a) => a.tipo === "BLOQUEIO_24H" || a.tipo === "INDISPONIVEL_AFASTADO")?.mensagem;
+      setDropFeedback({
+        tipo: "bloqueio",
+        mensagem: bloqueioMsg || "BLOQUEIO: Escalação rejeitada por violar restrição de descanso de 24h ou afastamento ativo."
+      });
+      setTimeout(() => setDropFeedback(null), 5000);
+      setDraggedMilitarId(null);
+      setDraggedSourceItemId(null);
+      return;
+    }
+
+    const temAlertaSoft = alertas.find((a) => a.tipo === "ALERTA_72H" || a.tipo === "ALERTA_96H");
+
+    if (temAlertaSoft) {
+      setDropFeedback({
+        tipo: "alerta",
+        mensagem: temAlertaSoft.mensagem
+      });
+      setTimeout(() => setDropFeedback(null), 5000);
+    } else {
+      setDropFeedback({
+        tipo: "sucesso",
+        mensagem: sourceItem
+          ? `Policial militar ${militar.graduacao} ${militar.nomeGuerra} movido de ${dataOrigem ? formatDateBr(dataOrigem) : ""} para o dia ${formatDateBr(targetDataStr)} (${targetPosto.sigla}).`
+          : `Policial militar ${militar.graduacao} ${militar.nomeGuerra} alocado com sucesso no dia ${formatDateBr(targetDataStr)} (${targetPosto.sigla}).`
+      });
+      setTimeout(() => setDropFeedback(null), 3500);
+    }
+
+    let novasEscalas = [...escalasSemOrigem];
+
+    if (itemExistenteTarget) {
+      novasEscalas = novasEscalas.map((e) =>
+        e.id === itemExistenteTarget.id
+          ? {
+              ...e,
+              militarId: militar.id,
+              startTimeMs,
+              endTimeMs,
+              isAjuste: true,
+              status: "efetivada"
+            }
+          : e
+      );
+    } else {
+      const novoItem: EscalaItem = {
+        id: `esc-${targetDataStr}-${targetPosto.id}`,
+        unidadeId: unidade.id,
+        data: targetDataStr,
+        postoId: targetPosto.id,
+        militarId: militar.id,
+        startTimeMs,
+        endTimeMs,
+        isPermuta: false,
+        isAjuste: true,
+        status: "efetivada"
+      };
+      novasEscalas.push(novoItem);
+    }
+
+    novasEscalas = reajustarHierarquiaGuarnicao(
+      novasEscalas,
+      targetDataStr,
+      unidade.id,
+      militaresUnidade,
+      postos
+    );
+    if (dataOrigem && dataOrigem !== targetDataStr) {
+      novasEscalas = reajustarHierarquiaGuarnicao(
+        novasEscalas,
+        dataOrigem,
+        unidade.id,
+        militaresUnidade,
+        postos
+      );
+    }
+
+    onUpdateEscalas(novasEscalas);
+    setDraggedMilitarId(null);
+    setDraggedSourceItemId(null);
+  };
+
+  const handleRemoverEscalaNoDia = (escalaId: string) => {
+    const item = escalas.find((e) => e.id === escalaId);
+    if (!item) return;
+
+    let novas = escalas.filter((e) => e.id !== escalaId);
+    novas = reajustarHierarquiaGuarnicao(novas, item.data, unidade.id, militaresUnidade, postos);
+    onUpdateEscalas(novas);
+    setDropFeedback({
+      tipo: "sucesso",
+      mensagem: "Escalação removida com sucesso."
+    });
+    setTimeout(() => setDropFeedback(null), 3000);
+  };
 
   // Helper to determine visual hierarchy & role styles for squad posts
   const getEstiloPostoGuarnicao = (posto: PostoServico, isReforco: boolean) => {
@@ -286,6 +700,36 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      {/* Toast Feedback Notification */}
+      {dropFeedback && (
+        <div
+          className={`p-4 rounded-xl shadow-xl border flex items-center justify-between gap-3 text-xs font-bold transition-all animate-in fade-in slide-in-from-top duration-200 ${
+            dropFeedback.tipo === "bloqueio"
+              ? "bg-rose-950/90 text-rose-200 border-rose-800"
+              : dropFeedback.tipo === "alerta"
+              ? "bg-amber-950/90 text-amber-200 border-amber-800"
+              : "bg-emerald-950/90 text-emerald-200 border-emerald-800"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {dropFeedback.tipo === "bloqueio" ? (
+              <XCircle className="w-5 h-5 text-rose-400 shrink-0" />
+            ) : dropFeedback.tipo === "alerta" ? (
+              <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            )}
+            <span>{dropFeedback.mensagem}</span>
+          </div>
+          <button
+            onClick={() => setDropFeedback(null)}
+            className="text-slate-400 hover:text-slate-200 cursor-pointer p-1"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Header Bar */}
       <div className="bg-slate-900 p-5 rounded-xl border border-slate-800 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -361,6 +805,80 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
           )}
         </div>
       </div>
+
+      {/* Roster Draggable Bar for Monthly Calendar (Comandante Only) */}
+      {isComandante && (
+        <div className="bg-slate-900 text-white p-3.5 rounded-xl shadow-xl border border-slate-800 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+              <img src="https://i.ibb.co/FqLxFKqG/logo-17bpm-removebg-preview.png" alt="Logo" className="w-4 h-4 object-contain" referrerPolicy="no-referrer" />
+              <span>Efetivo Militar & Reforços (Arraste para Qualquer Dia do Calendário)</span>
+            </h3>
+            <span className="text-[11px] text-slate-400 font-semibold">
+              {militaresUnidade.length} Policiais Cadastrados • Arraste entre dias livremente
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-slate-700">
+            {/* SPECIAL DRAGGABLE CARD FOR REFORÇO EXTRAORDINÁRIO */}
+            <div
+              draggable
+              onDragStart={() => handleDragStart("REFORCO_EXTRAORDINARIO")}
+              onDragEnd={() => {
+                setDraggedMilitarId(null);
+                setDraggedSourceItemId(null);
+              }}
+              className="bg-gradient-to-r from-amber-950 to-amber-900 hover:from-amber-900 hover:to-amber-800 border-2 border-amber-500 hover:border-amber-400 rounded-xl px-3 py-1.5 text-xs cursor-grab active:cursor-grabbing shrink-0 transition-all select-none shadow-lg flex items-center gap-2 text-amber-100 group animate-pulse hover:animate-none"
+              title="Arraste para qualquer dia no calendário para alocar um Reforço Extraordinário"
+            >
+              <div className="bg-amber-500 text-slate-950 p-1 rounded-lg font-black shrink-0">
+                <Zap className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="font-extrabold text-[11px] text-amber-300 flex items-center gap-1.5 uppercase tracking-wide">
+                  <span>Reforço Extraordinário</span>
+                  <span className="text-[8.5px] bg-amber-400 text-slate-950 px-1 py-0.2 rounded font-black">
+                    LIVRE
+                  </span>
+                </div>
+                <div className="text-[9.5px] text-amber-200/90 flex items-center gap-1 font-semibold">
+                  <span>Arraste p/ qualquer dia</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="w-[1px] h-8 bg-slate-800 mx-1 shrink-0" />
+
+            {militaresUnidade.map((m) => (
+              <div
+                key={m.id}
+                draggable
+                onDragStart={() => handleDragStart(m.id)}
+                onDragEnd={() => {
+                  setDraggedMilitarId(null);
+                  setDraggedSourceItemId(null);
+                }}
+                className="bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 hover:border-blue-500/50 rounded-xl px-2.5 py-1.5 text-xs cursor-grab active:cursor-grabbing shrink-0 transition-all select-none shadow-md flex items-center gap-2"
+                title={`Arraste ${m.graduacao} ${m.nomeGuerra} para qualquer dia`}
+              >
+                <span className="font-mono text-[10px] text-slate-400 font-bold">
+                  #{m.antiguidadeOrdem}
+                </span>
+                <div>
+                  <div className="font-bold text-white flex items-center gap-1 text-[11px]">
+                    <span>{m.graduacao}</span>
+                    <span className="text-blue-400">{m.nomeGuerra}</span>
+                  </div>
+                  <div className="text-[9.5px] text-slate-400 flex items-center gap-1">
+                    <span>RG {m.rgPmmt}</span>
+                    {m.cnhAtiva && <Car className="w-3 h-3 text-emerald-400 ml-1" title="CNH Motorista Ativa" />}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -487,7 +1005,7 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
         </div>
       </div>
 
-      {/* Main Calendar Grid */}
+      {/* Main Calendar Grid with Drag and Drop between Days */}
       <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-2xl overflow-hidden">
         {/* Days of week header */}
         <div className="grid grid-cols-7 bg-slate-950 text-slate-300 text-xs font-extrabold uppercase text-center border-b border-slate-800 py-3">
@@ -537,13 +1055,25 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
 
             const temAfastados = afastadosDia.length > 0;
             const destaqueIndisponivel = filtroExibicao === "indisponiveis" && temAfastados;
+            const isDayDragOver = dragOverDayStr === dataStr;
 
             return (
               <div
                 key={dataStr}
-                onClick={() => setDiaSelecionadoModal(dayInfo)}
+                onDragOver={(e) => handleDragOverDay(e, dataStr)}
+                onDragLeave={() => {
+                  if (dragOverDayStr === dataStr) setDragOverDayStr(null);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleDropOnDayOrSlot(dataStr);
+                }}
+                onClick={() => setDataStrSelecionada(dataStr)}
                 className={`${minCellHeight} p-2 flex flex-col justify-between transition-all cursor-pointer relative group ${
-                  destaqueIndisponivel
+                  isDayDragOver
+                    ? "bg-blue-950/80 ring-2 ring-blue-400 border-blue-500 scale-[1.01] z-10 shadow-xl"
+                    : destaqueIndisponivel
                     ? "bg-rose-950/30 hover:bg-rose-900/40 border-rose-800/60"
                     : "bg-slate-900/90 hover:bg-slate-800/90 border-slate-800/40 hover:border-slate-700"
                 } ${isTerca ? "border-l-2 border-l-blue-500" : ""}`}
@@ -568,7 +1098,7 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                           Semana
                         </span>
                       )}
-                      {dataStr < getTodayString() ? (
+                      {obterStatusDiaEscala(dataStr) === "concluida" ? (
                         <span className="text-[7.5px] font-black uppercase text-emerald-300 bg-emerald-950/80 px-1 py-0.2 rounded border border-emerald-700/60">
                           Concluída
                         </span>
@@ -591,15 +1121,17 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                     </div>
                   </div>
 
-                  {/* Hierarchical Guarnição List */}
+                  {/* Hierarchical Guarnição List with Draggable Military Items */}
                   <div className="space-y-1 mt-1">
                     {guarnicaoFiltrada.length === 0 ? (
-                      <span className="text-[10px] text-slate-500 italic block text-center py-2 font-mono">
-                        Sem escala lançada
-                      </span>
+                      <div className="text-[10px] text-slate-500 italic block text-center py-2 font-mono border border-dashed border-slate-800/80 rounded-md">
+                        {isComandante ? "Solte um policial aqui" : "Sem escala lançada"}
+                      </div>
                     ) : (
                       guarnicaoFiltrada.map((item) => {
                         const estilo = getEstiloPostoGuarnicao(item.posto, item.isReforco);
+                        const slotKey = `${dataStr}_${item.posto.id}`;
+                        const isSlotHover = dragOverSlotKey === slotKey;
 
                         const nomeCompletoMilitar = item.militar
                           ? `${item.militar.graduacao} ${item.militar.nomeGuerra} (RG ${item.militar.rgPmmt})`
@@ -607,11 +1139,45 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                           ? "Reforço Extraordinário"
                           : "Vago";
 
+                        const canDragThisItem = Boolean(
+                          isComandante && item.escala && !isEscalaItemConcluido(item.escala)
+                        );
+
                         return (
                           <div
                             key={item.escala.id}
-                            title={`${estilo.roleLabel} • ${item.posto.nome}: ${nomeCompletoMilitar}`}
-                            className={`rounded-md p-1 flex items-center justify-between gap-1 border transition-all shadow-2xs ${estilo.cardBg}`}
+                            draggable={canDragThisItem}
+                            onDragStart={(e) => {
+                              if (canDragThisItem) {
+                                e.stopPropagation();
+                                handleDragStart(item.escala.militarId, item.escala.id);
+                              }
+                            }}
+                            onDragEnd={() => {
+                              setDraggedMilitarId(null);
+                              setDraggedSourceItemId(null);
+                            }}
+                            onDragOver={(e) => {
+                              e.stopPropagation();
+                              handleDragOverDay(e, dataStr, slotKey);
+                            }}
+                            onDrop={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              handleDropOnDayOrSlot(dataStr, item.posto.id);
+                            }}
+                            title={`${estilo.roleLabel} • ${item.posto.nome}: ${nomeCompletoMilitar} ${
+                              canDragThisItem ? "\n(Arraste para mover/permutar com outro dia)" : ""
+                            }`}
+                            className={`rounded-md p-1 flex items-center justify-between gap-1 border transition-all shadow-2xs ${
+                              isSlotHover
+                                ? "ring-2 ring-blue-400 bg-blue-950 border-blue-400"
+                                : estilo.cardBg
+                            } ${
+                              canDragThisItem
+                                ? "cursor-grab active:cursor-grabbing hover:border-blue-400 hover:scale-[1.01]"
+                                : ""
+                            }`}
                           >
                             <div className="flex items-center gap-1.5 min-w-0 flex-1">
                               {/* Hierarchical Role Badge */}
@@ -664,13 +1230,12 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                       )
                       .join("\n")}`}
                   >
-                    <span className="flex items-center gap-1 font-extrabold text-rose-300 shrink-0">
-                      <UserX className="w-2.5 h-2.5 text-rose-400" />
-                      <span>{afastadosDia.length} Afast.</span>
+                    <span className="font-extrabold uppercase text-rose-300 flex items-center gap-1">
+                      <UserX className="w-3 h-3 text-rose-400" />
+                      {afastadosDia.length} Afastado(s)
                     </span>
-                    <span className="truncate text-[8.5px] font-semibold text-rose-200/90 font-mono ml-1">
-                      {afastadosDia[0].militar?.nomeGuerra || "Policial"}
-                      {afastadosDia.length > 1 ? ` (+${afastadosDia.length - 1})` : ""}
+                    <span className="text-rose-400/80 font-mono text-[8px]">
+                      Ver detalhes
                     </span>
                   </div>
                 )}
@@ -698,7 +1263,7 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                         Início da Semana
                       </span>
                     )}
-                    {diaSelecionadoModal.dataStr < getTodayString() ? (
+                    {obterStatusDiaEscala(diaSelecionadoModal.dataStr) === "concluida" ? (
                       <span className="text-[10px] font-extrabold text-emerald-300 bg-emerald-950/90 px-2 py-0.5 rounded border border-emerald-700/80 flex items-center gap-1">
                         <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Status: CONCLUÍDA
                       </span>
@@ -714,7 +1279,7 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                 </div>
               </div>
               <button
-                onClick={() => setDiaSelecionadoModal(null)}
+                onClick={() => setDataStrSelecionada(null)}
                 className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -769,7 +1334,7 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                             </div>
                           </div>
 
-                          <div className="sm:text-right pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800">
+                          <div className="flex items-center gap-3 sm:text-right pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800">
                             {item.isReforco ? (
                               <span className="inline-flex items-center gap-1 bg-amber-500/20 text-amber-300 px-3 py-1.5 rounded-lg border border-amber-500/40 font-extrabold text-xs uppercase">
                                 <Zap className="w-3.5 h-3.5 text-amber-400" /> Reforço Extraordinário
@@ -787,6 +1352,16 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                               <span className="text-rose-400 font-bold italic text-xs bg-rose-950/40 px-2.5 py-1 rounded border border-rose-800/50">
                                 Posto Vago (Sem Policial)
                               </span>
+                            )}
+
+                            {isComandante && obterStatusDiaEscala(diaSelecionadoModal.dataStr) !== "concluida" && (
+                              <button
+                                onClick={() => handleRemoverEscalaNoDia(item.escala.id)}
+                                className="p-1.5 bg-slate-900/90 hover:bg-rose-950 text-slate-400 hover:text-rose-300 border border-slate-700 hover:border-rose-700 rounded-lg transition-colors cursor-pointer"
+                                title="Desescalar militar deste posto"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             )}
                           </div>
                         </div>
@@ -849,7 +1424,7 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                 <span>Escala Oficial • Polícia Militar do Estado de Mato Grosso</span>
               </div>
               <button
-                onClick={() => setDiaSelecionadoModal(null)}
+                onClick={() => setDataStrSelecionada(null)}
                 className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs px-4 py-2 rounded-xl border border-slate-700 transition-all cursor-pointer"
               >
                 Fechar Detalhamento
