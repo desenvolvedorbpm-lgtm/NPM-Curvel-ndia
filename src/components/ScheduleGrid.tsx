@@ -20,7 +20,8 @@ import {
   getTodayString,
   obterStatusDiaEscala,
   isEscalaItemConcluido,
-  reajustarHierarquiaGuarnicao
+  reajustarHierarquiaGuarnicao,
+  formatRgPmmt
 } from "../utils/rulesEngine";
 import {
   ChevronLeft,
@@ -652,10 +653,15 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
 
       {/* Roster Draggable Bar (Comandante Only for Dragging) */}
       {isComandante ? (
-        <div className="bg-slate-900 text-white p-3.5 rounded-xl shadow-xl border border-slate-800 space-y-2.5">
+        <div className="bg-slate-900 text-white p-3.5 rounded-xl shadow-xl border border-slate-800 space-y-2.5 notranslate" translate="no">
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-            <img src="https://i.ibb.co/FqLxFKqG/logo-17bpm-removebg-preview.png" alt="Logo" className="w-4 h-4 object-contain" referrerPolicy="no-referrer" />
+            <img
+              src={unidade.cabecalho?.logoUrl || "https://i.ibb.co/FqLxFKqG/logo-17bpm-removebg-preview.png"}
+              alt="Logo"
+              className="w-4 h-4 object-contain"
+              referrerPolicy="no-referrer"
+            />
             Efetivo Militar & Reforços (Arraste o Card para o Slot Desejado)
           </h3>
           <span className="text-[11px] text-slate-400">
@@ -695,18 +701,19 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                 key={m.id}
                 draggable
                 onDragStart={() => handleDragStart(m.id)}
-                className="bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 hover:border-blue-500/50 rounded-xl px-2.5 py-1.5 text-xs cursor-grab active:cursor-grabbing shrink-0 transition-all select-none shadow-md flex items-center gap-2"
+                className="bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 hover:border-blue-500/50 rounded-xl px-2.5 py-1.5 text-xs cursor-grab active:cursor-grabbing shrink-0 transition-all select-none shadow-md flex items-center gap-2 notranslate"
+                translate="no"
               >
                 <span className="font-mono text-[10px] text-slate-400 font-bold">
                   #{m.antiguidadeOrdem}
                 </span>
-                <div>
-                  <div className="font-bold text-white flex items-center gap-1 text-[11px]">
-                    <span>{m.graduacao}</span>
-                    <span className="text-blue-400">{m.nomeGuerra}</span>
+                <div className="notranslate" translate="no">
+                  <div className="font-bold text-white flex items-center gap-1 text-[11px] notranslate" translate="no">
+                    <span className="notranslate" translate="no">{m.graduacao}</span>
+                    <span className="text-blue-400 notranslate" translate="no">{m.nomeGuerra}</span>
                   </div>
-                  <div className="text-[9.5px] text-slate-400 flex items-center gap-1">
-                    <span>RG {m.rgPmmt}</span>
+                  <div className="text-[9.5px] text-slate-400 flex items-center gap-1 notranslate" translate="no">
+                    <span className="notranslate" translate="no">RG {formatRgPmmt(m.rgPmmt)}</span>
                     {m.cnhAtiva && <Car className="w-3 h-3 text-emerald-400 ml-1" title="CNH Motorista Ativa" />}
                   </div>
                 </div>
@@ -920,15 +927,15 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                             </div>
 
                             {/* Military Info */}
-                            <div className="leading-tight">
-                              <p className="font-semibold text-[10px] text-slate-300 truncate">
+                            <div className="leading-tight notranslate" translate="no">
+                              <p className="font-semibold text-[10px] text-slate-300 truncate notranslate" translate="no">
                                 {militarAlocado.graduacao}
                               </p>
-                              <p className="font-extrabold text-[11px] text-blue-400 truncate">
+                              <p className="font-extrabold text-[11px] text-blue-400 truncate notranslate" translate="no">
                                 {militarAlocado.nomeGuerra}
                               </p>
-                              <p className="text-[9px] text-slate-400 font-mono truncate">
-                                RG {militarAlocado.rgPmmt}
+                              <p className="text-[9px] text-slate-400 font-mono truncate notranslate" translate="no">
+                                RG {formatRgPmmt(militarAlocado.rgPmmt)}
                               </p>
                             </div>
 
@@ -1054,11 +1061,11 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                             </span>
 
                             {sugestao.sugerido && (
-                              <div className="mt-1 bg-blue-950/50 border border-blue-800/80 rounded-lg px-1.5 py-1 text-[9.5px] text-blue-300">
+                              <div className="mt-1 bg-blue-950/50 border border-blue-800/80 rounded-lg px-1.5 py-1 text-[9.5px] text-blue-300 notranslate" translate="no">
                                 <span className="font-bold block text-blue-400">
                                   💡 Sugestão:
                                 </span>
-                                <span className="font-semibold">
+                                <span className="font-semibold notranslate" translate="no">
                                   {sugestao.sugerido.graduacao} {sugestao.sugerido.nomeGuerra}
                                 </span>
                               </div>

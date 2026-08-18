@@ -8,7 +8,7 @@ import {
   ItemConflito,
   RegistroFolga96h
 } from "../types";
-import { obterTodosConflitosEscala, formatDateBr, obterStatusDiaEscala } from "../utils/rulesEngine";
+import { obterTodosConflitosEscala, formatDateBr, obterStatusDiaEscala, formatRgPmmt } from "../utils/rulesEngine";
 import { Folgas96hManager } from "./Folgas96hManager";
 import {
   AlertTriangle,
@@ -411,21 +411,21 @@ export const ConflictsManager: React.FC<ConflictsManagerProps> = ({
                     {/* Details Grid: Military & Post Info */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                       {/* Military Info */}
-                      <div className="bg-slate-950/70 border border-slate-800 p-3.5 rounded-xl space-y-2">
+                      <div className="bg-slate-950/70 border border-slate-800 p-3.5 rounded-xl space-y-2 notranslate" translate="no">
                         <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                           <User className="w-3.5 h-3.5 text-blue-400" />
                           <span>Policial Militar Envolvido</span>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <div className="font-extrabold text-white text-sm">
-                            <span className="text-blue-400">{item.militar.graduacao}</span> {item.militar.nomeGuerra}
+                        <div className="flex items-center justify-between notranslate" translate="no">
+                          <div className="font-extrabold text-white text-sm notranslate" translate="no">
+                            <span className="text-blue-400 notranslate" translate="no">{item.militar.graduacao}</span> <span className="notranslate" translate="no">{item.militar.nomeGuerra}</span>
                           </div>
-                          <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
-                            RG {item.militar.rgPmmt}
+                          <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 notranslate" translate="no">
+                            RG {formatRgPmmt(item.militar.rgPmmt)}
                           </span>
                         </div>
-                        <div className="text-[11px] text-slate-400 flex items-center gap-3">
-                          <span>Nome: {item.militar.nomeCompleto}</span>
+                        <div className="text-[11px] text-slate-400 flex items-center gap-3 notranslate" translate="no">
+                          <span className="notranslate" translate="no">Nome: {item.militar.nomeCompleto}</span>
                           {item.militar.cnhAtiva && (
                             <span className="text-emerald-400 flex items-center gap-1 font-semibold" title="CNH Ativa">
                               <Car className="w-3 h-3" /> CNH OK

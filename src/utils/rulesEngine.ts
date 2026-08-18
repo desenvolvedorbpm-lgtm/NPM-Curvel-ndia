@@ -1372,3 +1372,13 @@ export function detectarFolgas96hDasEscalas(
   return sugestoes;
 }
 
+/**
+ * Sanitiza e formata o RGPMMT de forma consistente com pontos,
+ * prevenindo conversões indevidas de ponto para vírgula por navegadores/locales.
+ */
+export function formatRgPmmt(rg: string | undefined | null): string {
+  if (!rg) return "";
+  return String(rg).trim().replace(/,/g, ".");
+}
+
+

@@ -13,7 +13,8 @@ import {
   obterStatusDiaEscala,
   isEscalaItemConcluido,
   validarRegrasEscala,
-  reajustarHierarquiaGuarnicao
+  reajustarHierarquiaGuarnicao,
+  formatRgPmmt
 } from "../utils/rulesEngine";
 import {
   Calendar as CalendarIcon,
@@ -858,19 +859,20 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                   setDraggedMilitarId(null);
                   setDraggedSourceItemId(null);
                 }}
-                className="bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 hover:border-blue-500/50 rounded-xl px-2.5 py-1.5 text-xs cursor-grab active:cursor-grabbing shrink-0 transition-all select-none shadow-md flex items-center gap-2"
+                className="bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 hover:border-blue-500/50 rounded-xl px-2.5 py-1.5 text-xs cursor-grab active:cursor-grabbing shrink-0 transition-all select-none shadow-md flex items-center gap-2 notranslate"
+                translate="no"
                 title={`Arraste ${m.graduacao} ${m.nomeGuerra} para qualquer dia`}
               >
                 <span className="font-mono text-[10px] text-slate-400 font-bold">
                   #{m.antiguidadeOrdem}
                 </span>
-                <div>
-                  <div className="font-bold text-white flex items-center gap-1 text-[11px]">
-                    <span>{m.graduacao}</span>
-                    <span className="text-blue-400">{m.nomeGuerra}</span>
+                <div className="notranslate" translate="no">
+                  <div className="font-bold text-white flex items-center gap-1 text-[11px] notranslate" translate="no">
+                    <span className="notranslate" translate="no">{m.graduacao}</span>
+                    <span className="text-blue-400 notranslate" translate="no">{m.nomeGuerra}</span>
                   </div>
-                  <div className="text-[9.5px] text-slate-400 flex items-center gap-1">
-                    <span>RG {m.rgPmmt}</span>
+                  <div className="text-[9.5px] text-slate-400 flex items-center gap-1 notranslate" translate="no">
+                    <span className="notranslate" translate="no">RG {formatRgPmmt(m.rgPmmt)}</span>
                     {m.cnhAtiva && <Car className="w-3 h-3 text-emerald-400 ml-1" title="CNH Motorista Ativa" />}
                   </div>
                 </div>
@@ -914,7 +916,12 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
 
         <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-md flex items-center gap-3">
           <div className="p-2.5 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20">
-            <img src="https://i.ibb.co/FqLxFKqG/logo-17bpm-removebg-preview.png" alt="Logo" className="w-5 h-5 object-contain" referrerPolicy="no-referrer" />
+            <img
+              src={unidade.cabecalho?.logoUrl || "https://i.ibb.co/FqLxFKqG/logo-17bpm-removebg-preview.png"}
+              alt="Logo"
+              className="w-5 h-5 object-contain"
+              referrerPolicy="no-referrer"
+            />
           </div>
           <div>
             <span className="text-[10px] font-extrabold uppercase text-slate-400">Efetivo da Unidade</span>
@@ -1188,15 +1195,16 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                               </span>
 
                               {/* Military Rank + War Name */}
-                              <div className="flex items-baseline gap-1 truncate min-w-0">
+                              <div className="flex items-baseline gap-1 truncate min-w-0 notranslate" translate="no">
                                 {item.militar && (
                                   <span
-                                    className={`text-[8.5px] font-bold shrink-0 uppercase tracking-tight opacity-80 ${estilo.textRank}`}
+                                    className={`text-[8.5px] font-bold shrink-0 uppercase tracking-tight opacity-80 notranslate ${estilo.textRank}`}
+                                    translate="no"
                                   >
                                     {item.militar.graduacao}
                                   </span>
                                 )}
-                                <span className={`text-[10px] uppercase truncate tracking-tight ${estilo.textName}`}>
+                                <span className={`text-[10px] uppercase truncate tracking-tight notranslate ${estilo.textName}`} translate="no">
                                   {item.isReforco
                                     ? "REFORÇO EXTRA"
                                     : item.militar
@@ -1340,12 +1348,12 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                                 <Zap className="w-3.5 h-3.5 text-amber-400" /> Reforço Extraordinário
                               </span>
                             ) : item.militar ? (
-                              <div>
-                                <span className={`font-black text-sm uppercase block ${estilo.textName}`}>
+                              <div className="notranslate" translate="no">
+                                <span className={`font-black text-sm uppercase block notranslate ${estilo.textName}`} translate="no">
                                   {item.militar.graduacao} {item.militar.nomeGuerra}
                                 </span>
-                                <span className="text-xs text-slate-400 font-mono block">
-                                  RG: {item.militar.rgPmmt} • {item.militar.nomeCompleto}
+                                <span className="text-xs text-slate-400 font-mono block notranslate" translate="no">
+                                  RG: {formatRgPmmt(item.militar.rgPmmt)} • {item.militar.nomeCompleto}
                                 </span>
                               </div>
                             ) : (
@@ -1395,12 +1403,12 @@ export const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                         key={afastamento.id}
                         className="p-3.5 flex items-center justify-between text-xs bg-rose-950/20 hover:bg-rose-950/30 transition-colors"
                       >
-                        <div className="space-y-0.5">
-                          <span className="font-extrabold text-rose-200 uppercase block text-sm">
+                        <div className="space-y-0.5 notranslate" translate="no">
+                          <span className="font-extrabold text-rose-200 uppercase block text-sm notranslate" translate="no">
                             {militar ? `${militar.graduacao} ${militar.nomeGuerra}` : "Policial"}
                           </span>
-                          <span className="text-slate-400 text-[11px] block font-mono">
-                            {militar ? `${militar.nomeCompleto} (RG ${militar.rgPmmt})` : "N/A"}
+                          <span className="text-slate-400 text-[11px] block font-mono notranslate" translate="no">
+                            {militar ? `${militar.nomeCompleto} (RG ${formatRgPmmt(militar.rgPmmt)})` : "N/A"}
                           </span>
                           <span className="text-slate-400 text-[11px] block">
                             Período: <strong>{formatDateBr(afastamento.dataInicio)}</strong> até <strong>{formatDateBr(afastamento.dataFim)}</strong>

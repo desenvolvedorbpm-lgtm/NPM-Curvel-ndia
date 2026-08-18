@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Afastamento, Militar, TipoAfastamento } from "../types";
-import { formatDateBr } from "../utils/rulesEngine";
+import { formatDateBr, formatRgPmmt } from "../utils/rulesEngine";
 import { Plus, Trash2, Calendar, ShieldAlert, Check, X, Info, Flame, HeartHandshake } from "lucide-react";
 
 interface AbsencesManagerProps {
@@ -141,8 +141,8 @@ export const AbsencesManager: React.FC<AbsencesManagerProps> = ({
 
                   return (
                     <tr key={af.id} className="hover:bg-slate-800/40 transition-colors">
-                      <td className="py-3 px-4 font-bold text-slate-100">
-                        {m ? `${m.graduacao} ${m.nomeGuerra} (RG ${m.rgPmmt})` : "Militar Não Encontrado"}
+                      <td className="py-3 px-4 font-bold text-slate-100 notranslate" translate="no">
+                        {m ? `${m.graduacao} ${m.nomeGuerra} (RG ${formatRgPmmt(m.rgPmmt)})` : "Militar Não Encontrado"}
                       </td>
                       <td className="py-3 px-4">
                         <span className="font-semibold text-slate-200 bg-slate-950 px-2 py-1 rounded border border-slate-800">
@@ -219,8 +219,8 @@ export const AbsencesManager: React.FC<AbsencesManagerProps> = ({
                   required
                 >
                   {militaresUnidade.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.graduacao} {m.nomeGuerra} (RG {m.rgPmmt})
+                    <option key={m.id} value={m.id} className="notranslate">
+                      {m.graduacao} {m.nomeGuerra} (RG {formatRgPmmt(m.rgPmmt)})
                     </option>
                   ))}
                 </select>

@@ -11,7 +11,8 @@ import {
   gerarDiasFolgaArray,
   calcularTotalFolgasMilitar,
   obterUltimosMilitaresComFolga96h,
-  detectarFolgas96hDasEscalas
+  detectarFolgas96hDasEscalas,
+  formatRgPmmt
 } from "../utils/rulesEngine";
 import {
   Clock,
@@ -521,8 +522,8 @@ export const Folgas96hManager: React.FC<Folgas96hManagerProps> = ({
             {militares.map((m) => {
               const totalMilitar = calcularTotalFolgasMilitar(m.id, registros);
               return (
-                <option key={m.id} value={m.id}>
-                  {m.graduacao} {m.nomeGuerra} (RG {m.rgPmmt}) - {totalMilitar} {totalMilitar === 1 ? 'folga' : 'folgas'}
+                <option key={m.id} value={m.id} className="notranslate">
+                  {m.graduacao} {m.nomeGuerra} (RG {formatRgPmmt(m.rgPmmt)}) - {totalMilitar} {totalMilitar === 1 ? 'folga' : 'folgas'}
                 </option>
               );
             })}
@@ -584,13 +585,13 @@ export const Folgas96hManager: React.FC<Folgas96hManagerProps> = ({
                       {/* Military */}
                       <td className="py-3.5 px-4">
                         {militar ? (
-                          <div className="space-y-0.5">
-                            <div className="font-extrabold text-white text-xs flex items-center gap-1.5">
-                              <span className="text-blue-400">{militar.graduacao}</span>
-                              <span>{militar.nomeGuerra}</span>
+                          <div className="space-y-0.5 notranslate" translate="no">
+                            <div className="font-extrabold text-white text-xs flex items-center gap-1.5 notranslate" translate="no">
+                              <span className="text-blue-400 notranslate" translate="no">{militar.graduacao}</span>
+                              <span className="notranslate" translate="no">{militar.nomeGuerra}</span>
                             </div>
-                            <div className="text-[11px] text-slate-400 font-mono">
-                              RG {militar.rgPmmt}
+                            <div className="text-[11px] text-slate-400 font-mono notranslate" translate="no">
+                              RG {formatRgPmmt(militar.rgPmmt)}
                             </div>
                           </div>
                         ) : (
@@ -891,12 +892,12 @@ export const Folgas96hManager: React.FC<Folgas96hManagerProps> = ({
                       key={`sugestao-${sug.militar.id}-${sug.dataInicio}-${idx}`}
                       className="bg-slate-950 border border-slate-800 hover:border-slate-700 p-3.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
                     >
-                      <div className="space-y-1">
-                        <div className="font-extrabold text-white flex items-center gap-2">
-                          <span className="text-blue-400">{sug.militar.graduacao}</span>
-                          <span>{sug.militar.nomeGuerra}</span>
-                          <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-1.5 py-0.2 rounded border border-slate-800">
-                            RG {sug.militar.rgPmmt}
+                      <div className="space-y-1 notranslate" translate="no">
+                        <div className="font-extrabold text-white flex items-center gap-2 notranslate" translate="no">
+                          <span className="text-blue-400 notranslate" translate="no">{sug.militar.graduacao}</span>
+                          <span className="notranslate" translate="no">{sug.militar.nomeGuerra}</span>
+                          <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-1.5 py-0.2 rounded border border-slate-800 notranslate" translate="no">
+                            RG {formatRgPmmt(sug.militar.rgPmmt)}
                           </span>
                         </div>
 

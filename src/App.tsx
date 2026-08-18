@@ -688,6 +688,7 @@ export default function App() {
     return (
       <LoginPage
         usuarios={usuarios}
+        unidadeAtual={unidadeAtual}
         onUpdateUsuarios={(novos) => setUsuarios(novos)}
         onLoginSuccess={(user) => setUsuarioLogado(user)}
       />
@@ -782,6 +783,7 @@ export default function App() {
         {tabAtiva === "militares" && (
           <MilitaryManager
             unidadeId={unidadeAtual.id}
+            unidadeLogoUrl={unidadeAtual.cabecalho?.logoUrl}
             militares={militares}
             onAddMilitar={handleAddMilitar}
             onUpdateMilitar={handleUpdateMilitar}

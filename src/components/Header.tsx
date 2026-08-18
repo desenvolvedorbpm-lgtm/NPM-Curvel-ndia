@@ -71,7 +71,12 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-xl bg-white flex items-center justify-center font-bold text-lg shadow-md border border-slate-200/90 overflow-hidden p-1">
-            <img src="https://i.ibb.co/FqLxFKqG/logo-17bpm-removebg-preview.png" alt="Logo 17º BPM" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+            <img
+              src={unidadeAtual.cabecalho?.logoUrl || "https://i.ibb.co/FqLxFKqG/logo-17bpm-removebg-preview.png"}
+              alt={unidadeAtual.sigla}
+              className="w-full h-full object-contain"
+              referrerPolicy="no-referrer"
+            />
           </div>
           <div>
             <div className="flex items-center gap-2">

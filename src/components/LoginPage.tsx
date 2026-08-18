@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { UsuarioAuth } from "../types";
+import { UsuarioAuth, UnidadeTenant } from "../types";
 import {
   Shield,
   Lock,
@@ -15,6 +15,7 @@ import {
 
 interface LoginPageProps {
   usuarios: UsuarioAuth[];
+  unidadeAtual?: UnidadeTenant;
   onUpdateUsuarios: (novosUsuarios: UsuarioAuth[]) => void;
   onLoginSuccess: (usuario: UsuarioAuth) => void;
 }
@@ -25,10 +26,12 @@ export const normalizeUser = (input: string): string => {
 
 export const LoginPage: React.FC<LoginPageProps> = ({
   usuarios,
+  unidadeAtual,
   onUpdateUsuarios,
   onLoginSuccess
 }) => {
   const [mode, setMode] = useState<"login" | "troca_senha" | "recuperar">("login");
+  const logoUrl = unidadeAtual?.cabecalho?.logoUrl || "https://i.ibb.co/FqLxFKqG/logo-17bpm-removebg-preview.png";
 
   // Form states
   const [inputRg, setInputRg] = useState("");
@@ -172,8 +175,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-xl bg-white flex items-center justify-center p-1 shadow-lg border border-slate-200">
               <img
-                src="https://i.ibb.co/FqLxFKqG/logo-17bpm-removebg-preview.png"
-                alt="Logo 17º BPM"
+                src={logoUrl}
+                alt="Logo PMMT"
                 className="w-full h-full object-contain"
                 referrerPolicy="no-referrer"
               />
@@ -183,7 +186,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 Polícia Militar do Estado de Mato Grosso
               </span>
               <h1 className="text-base sm:text-lg font-black text-slate-100 tracking-tight">
-                17º BATALHÃO DE POLÍCIA MILITAR • SIS-ESCALAS
+                {unidadeAtual?.nome || "17º BATALHÃO DE POLÍCIA MILITAR"} • SIS-ESCALAS
               </h1>
             </div>
           </div>
@@ -202,8 +205,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           <div className="bg-slate-950 px-6 py-6 border-b border-slate-800/80 text-center relative">
             <div className="w-16 h-16 mx-auto bg-white rounded-2xl flex items-center justify-center p-2 shadow-xl border border-slate-200 mb-3">
               <img
-                src="https://i.ibb.co/FqLxFKqG/logo-17bpm-removebg-preview.png"
-                alt="Logo 17º BPM"
+                src={logoUrl}
+                alt="Logo Unidade"
                 className="w-full h-full object-contain"
                 referrerPolicy="no-referrer"
               />
@@ -330,51 +333,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   <span>Entrar no Sistema</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
-
-                {/* Atalhos Rápidos para Demonstração dos Perfis */}
-                <div className="pt-3 border-t border-slate-800/80 space-y-2">
-                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block text-center">
-                    Acesso Rápido por Perfil (Inicial)
-                  </span>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setInputRg("admin");
-                        setInputSenha("123456");
-                        setErrorMsg(null);
-                      }}
-                      className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-[10px] font-bold text-red-300 text-center transition-all cursor-pointer"
-                      title="Perfil Administrador do Sistema (admin / 123456)"
-                    >
-                      🛡️ Admin
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setInputRg("comandante");
-                        setInputSenha("123456");
-                        setErrorMsg(null);
-                      }}
-                      className="p-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-[10px] font-bold text-amber-300 text-center transition-all cursor-pointer"
-                      title="Perfil Comandante (comandante / 123456)"
-                    >
-                      ⭐ Comandante
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setInputRg("operador");
-                        setInputSenha("123456");
-                        setErrorMsg(null);
-                      }}
-                      className="p-2 rounded-lg bg-blue-600/10 hover:bg-blue-600/20 border border-blue-500/30 text-[10px] font-bold text-blue-300 text-center transition-all cursor-pointer"
-                      title="Perfil Efetivo (operador / 123456)"
-                    >
-                      👮 Efetivo
-                    </button>
-                  </div>
-                </div>
               </form>
             )}
 

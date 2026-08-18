@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { EscalaItem, Militar, PostoServico } from "../types";
-import { formatDateBr } from "../utils/rulesEngine";
+import { formatDateBr, formatRgPmmt } from "../utils/rulesEngine";
 import { RefreshCw, Check, X, AlertTriangle } from "lucide-react";
 
 interface AjusteModalProps {
@@ -62,8 +62,8 @@ export const AjusteModal: React.FC<AjusteModalProps> = ({
               {formatDateBr(escalaItem.data)} • {posto?.sigla}
             </p>
             <p className="text-slate-400 mt-1">Militar Atual:</p>
-            <p className="font-semibold text-slate-200">
-              {militarAtual ? `${militarAtual.graduacao} ${militarAtual.nomeGuerra}` : "Reforço / Vazio"}
+            <p className="font-semibold text-slate-200 notranslate" translate="no">
+              {militarAtual ? `${militarAtual.graduacao} ${militarAtual.nomeGuerra} (RG ${formatRgPmmt(militarAtual.rgPmmt)})` : "Reforço / Vazio"}
             </p>
           </div>
 
@@ -79,8 +79,8 @@ export const AjusteModal: React.FC<AjusteModalProps> = ({
             >
               <option value="REFORCO_EXTRAORDINARIO">REFORÇO EXTRAORDINÁRIO</option>
               {militares.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.graduacao} {m.nomeGuerra} (RG {m.rgPmmt})
+                <option key={m.id} value={m.id} className="notranslate">
+                  {m.graduacao} {m.nomeGuerra} (RG {formatRgPmmt(m.rgPmmt)})
                 </option>
               ))}
             </select>

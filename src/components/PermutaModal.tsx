@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { EscalaItem, Militar, Afastamento, PostoServico } from "../types";
-import { validarRegrasEscala, formatDateBr } from "../utils/rulesEngine";
+import { validarRegrasEscala, formatDateBr, formatRgPmmt } from "../utils/rulesEngine";
 import { Shield, ArrowLeftRight, AlertOctagon, Check, X, FileCheck } from "lucide-react";
 
 interface PermutaModalProps {
@@ -99,9 +99,9 @@ export const PermutaModal: React.FC<PermutaModalProps> = ({
                 {formatDateBr(escalaItem.data)} • {posto?.sigla || "Posto"}
               </p>
             </div>
-            <div className="text-right">
+            <div className="text-right notranslate" translate="no">
               <span className="font-semibold text-slate-400">Titular Atual:</span>
-              <p className="font-bold text-blue-400 text-sm">
+              <p className="font-bold text-blue-400 text-sm notranslate" translate="no">
                 {militarTitular ? `${militarTitular.graduacao} ${militarTitular.nomeGuerra}` : "N/A"}
               </p>
             </div>
@@ -121,8 +121,8 @@ export const PermutaModal: React.FC<PermutaModalProps> = ({
               {militares
                 .filter((m) => m.id !== escalaItem.militarId)
                 .map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.graduacao} {m.nomeGuerra} (RG {m.rgPmmt})
+                  <option key={m.id} value={m.id} className="notranslate">
+                    {m.graduacao} {m.nomeGuerra} (RG {formatRgPmmt(m.rgPmmt)})
                   </option>
                 ))}
             </select>

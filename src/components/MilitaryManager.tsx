@@ -1,9 +1,11 @@
 import React, { useState } from "react";
 import { Militar, GraduacaoPM } from "../types";
+import { formatRgPmmt } from "../utils/rulesEngine";
 import { Plus, Edit2, Trash2, Award, Car, Check, X, ArrowUp, ArrowDown } from "lucide-react";
 
 interface MilitaryManagerProps {
   unidadeId: string;
+  unidadeLogoUrl?: string;
   militares: Militar[];
   onAddMilitar: (militar: Militar) => void;
   onUpdateMilitar: (militar: Militar) => void;
@@ -23,6 +25,7 @@ const GRADUACOES: GraduacaoPM[] = [
 
 export const MilitaryManager: React.FC<MilitaryManagerProps> = ({
   unidadeId,
+  unidadeLogoUrl,
   militares,
   onAddMilitar,
   onUpdateMilitar,
@@ -237,17 +240,22 @@ export const MilitaryManager: React.FC<MilitaryManagerProps> = ({
                         </span>
                       </div>
                     </td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <img src="https://i.ibb.co/FqLxFKqG/logo-17bpm-removebg-preview.png" alt="Logo" className="w-4 h-4 object-contain" referrerPolicy="no-referrer" />
-                        <div>
-                          <span className="font-bold text-slate-200">{m.graduacao}</span>{" "}
-                          <span className="font-extrabold text-blue-400">{m.nomeGuerra}</span>
+                    <td className="py-3 px-4 notranslate" translate="no">
+                      <div className="flex items-center gap-2 notranslate" translate="no">
+                        <img
+                          src={unidadeLogoUrl || "https://i.ibb.co/FqLxFKqG/logo-17bpm-removebg-preview.png"}
+                          alt="Logo"
+                          className="w-4 h-4 object-contain"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="notranslate" translate="no">
+                          <span className="font-bold text-slate-200 notranslate" translate="no">{m.graduacao}</span>{" "}
+                          <span className="font-extrabold text-blue-400 notranslate" translate="no">{m.nomeGuerra}</span>
                         </div>
                       </div>
                     </td>
-                    <td className="py-3 px-4 font-medium text-slate-400">{m.nomeCompleto || "---"}</td>
-                    <td className="py-3 px-4 font-mono font-semibold text-slate-300">{m.rgPmmt}</td>
+                    <td className="py-3 px-4 font-medium text-slate-400 notranslate" translate="no">{m.nomeCompleto || "---"}</td>
+                    <td className="py-3 px-4 font-mono font-semibold text-slate-300 notranslate" translate="no">{formatRgPmmt(m.rgPmmt)}</td>
                     <td className="py-3 px-4 text-center">
                       {m.cnhAtiva ? (
                         <span className="inline-flex items-center gap-1 bg-emerald-950/60 text-emerald-300 text-[11px] font-semibold px-2 py-0.5 rounded border border-emerald-800">

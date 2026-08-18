@@ -8,7 +8,7 @@ import {
   Afastamento,
   SemanaOperacional
 } from "../types";
-import { formatDateBr, getOperationalWeekForDate, sortPostosEmOrdemOficial, calcularInformativoNumero } from "../utils/rulesEngine";
+import { formatDateBr, getOperationalWeekForDate, sortPostosEmOrdemOficial, calcularInformativoNumero, formatRgPmmt } from "../utils/rulesEngine";
 import { exportElementToPdf } from "../utils/pdfGenerator";
 import { Download, Printer, X } from "lucide-react";
 
@@ -76,10 +76,11 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
     );
 
     return (
-      <div key={dataStr} className="border border-black text-[11px]" style={{ borderColor: "#000000" }}>
+      <div key={dataStr} className="border border-black text-[11px] notranslate" translate="no" style={{ borderColor: "#000000" }}>
         {/* Day Header */}
         <div
-          className="text-center font-bold py-1 border-b border-black uppercase text-[11px]"
+          className="text-center font-bold py-1 border-b border-black uppercase text-[11px] notranslate"
+          translate="no"
           style={{ backgroundColor: "#f1f5f9", borderColor: "#000000" }}
         >
           ESCALA DE SERVIÇO DO DIA {formatDateBr(dataStr)} ({diaObj.diaSemanaNome.split(" ")[0].toUpperCase()})
@@ -89,7 +90,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
         </div>
 
         {/* Posts Table */}
-        <table className="w-full text-left border-collapse">
+        <table className="w-full text-left border-collapse notranslate" translate="no">
           <tbody>
             {(() => {
               const postosFiltrados = postosUnidade.filter((posto) => {
@@ -117,27 +118,29 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                 return (
                   <tr
                     key={posto.id}
-                    className="border-b last:border-b-0 border-black"
+                    className="border-b last:border-b-0 border-black notranslate"
+                    translate="no"
                     style={{
                       borderColor: "#000000",
                       backgroundColor: idx % 2 === 0 ? "#ffffff" : "#fcfcfc"
                     }}
                   >
                     <td
-                      className="p-1.5 font-bold w-1/3 uppercase text-[10px] border-r border-black"
+                      className="p-1.5 font-bold w-1/3 uppercase text-[10px] border-r border-black notranslate"
                       style={{ borderColor: "#000000", backgroundColor: "#f8fafc" }}
+                      translate="no"
                     >
                       {posto.sigla}
                     </td>
-                    <td className="p-1.5 w-1/2 font-bold uppercase border-r border-black" style={{ borderColor: "#000000" }}>
+                    <td className="p-1.5 w-1/2 font-bold uppercase border-r border-black notranslate" style={{ borderColor: "#000000" }} translate="no">
                       {m ? (
-                        `${m.graduacao} ${m.nomeGuerra}`
+                        <span className="notranslate" translate="no">{`${m.graduacao} ${m.nomeGuerra}`}</span>
                       ) : (
                         "REFORÇO EXTRAORDINÁRIO"
                       )}
                     </td>
-                    <td className="p-1.5 w-1/4 font-mono font-bold text-right uppercase">
-                      {m ? `RG ${m.rgPmmt}` : "----------"}
+                    <td className="p-1.5 w-1/4 font-mono font-bold text-right uppercase notranslate" translate="no">
+                      {m ? <span className="notranslate" translate="no">{`RG ${formatRgPmmt(m.rgPmmt)}`}</span> : "----------"}
                     </td>
                   </tr>
                 );
@@ -150,12 +153,12 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50 overflow-y-auto">
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50 overflow-y-auto notranslate" translate="no">
       <div className="bg-slate-900 rounded-xl shadow-2xl border border-slate-800 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden my-auto">
         {/* Modal Top Header (Hidden on print) */}
         <div className="bg-slate-950 text-white px-5 py-3.5 flex items-center justify-between border-b border-slate-800 shrink-0 no-print">
           <div className="flex items-center gap-2">
-            <img src="https://i.ibb.co/FqLxFKqG/logo-17bpm-removebg-preview.png" alt="Logo" className="w-5 h-5 object-contain" referrerPolicy="no-referrer" />
+            <img src={cab.logoUrl || "https://i.ibb.co/FqLxFKqG/logo-17bpm-removebg-preview.png"} alt="Logo" className="w-5 h-5 object-contain" referrerPolicy="no-referrer" />
             <h3 className="font-bold text-sm">Espelho Oficial da Escala de Serviço (PDF)</h3>
           </div>
           <div className="flex items-center gap-2">
@@ -186,15 +189,20 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
           <div
             id="documento-escala-oficial"
             ref={documentRef}
-            className="w-full max-w-[800px] flex flex-col items-center gap-8 font-sans"
-            style={{ fontFamily: "'Arial', 'Helvetica', sans-serif" }}
+            className="w-full max-w-[800px] flex flex-col items-center gap-8 font-sans notranslate"
+            translate="no"
+            style={{
+              fontFamily: "'Arial', 'Helvetica', sans-serif",
+              fontVariantNumeric: "tabular-nums"
+            }}
           >
             {/* =========================================================================
-                PAGE 1 SHEET: OFFICIAL HEADER, INFORMATIVO & DIAS 1 A 4 (TERÇA A SEXTA)
+                PAGE 1 SHEET: SUBHEADER, INFORMATIVO & DIAS 1 A 4 (TERÇA A SEXTA)
                ========================================================================= */}
             <div
-              className="pdf-page-sheet bg-white text-black p-6 sm:p-8 w-full shadow-2xl border border-slate-300 flex flex-col justify-between"
+              className="pdf-page-sheet bg-white text-black p-6 sm:p-8 w-full shadow-2xl border border-slate-300 flex flex-col justify-between notranslate"
               data-pdf-page="1"
+              translate="no"
               style={{
                 backgroundColor: "#ffffff",
                 color: "#000000",
@@ -202,35 +210,14 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
               }}
             >
               <div className="space-y-3">
-                {/* Official Header */}
-                <div className="text-center space-y-1 pb-2 border-b-2 border-black" style={{ borderColor: "#000000" }}>
-                  {cab.logoUrl ? (
-                    <img
-                      src={cab.logoUrl}
-                      alt="Brasão"
-                      className="w-12 h-12 mx-auto object-contain mb-1"
-                    />
-                  ) : (
-                    <div className="w-10 h-10 mx-auto bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-800 text-[10px] border border-black mb-1">
-                      PMMT
-                    </div>
-                  )}
-                  <h1 className="font-bold text-xs sm:text-sm uppercase tracking-wide">
-                    {cab.governo || "GOVERNO DO ESTADO DE MATO GROSSO"}
-                  </h1>
-                  <h2 className="font-bold text-[10.5px] sm:text-xs uppercase tracking-wide">
-                    {cab.secretaria || "SECRETARIA DE ESTADO DE SEGURANÇA PÚBLICA / POLÍCIA MILITAR"}
-                  </h2>
-                </div>
-
                 {/* Subheader Box */}
-                <div className="border border-black p-1.5 text-center space-y-0.5 bg-slate-50" style={{ borderColor: "#000000", backgroundColor: "#f8fafc" }}>
-                  <p className="font-bold text-[10.5px] uppercase">{cab.batalhao || "ESTADO DE MATO GROSSO / POLÍCIA MILITAR"}</p>
+                <div className="border border-black p-1.5 text-center space-y-0.5 bg-slate-50 notranslate" translate="no" style={{ borderColor: "#000000", backgroundColor: "#f8fafc" }}>
+                  <p className="font-bold text-[10.5px] uppercase">{cab.batalhao || "17º BATALHÃO DE POLÍCIA MILITAR"}</p>
                   <p className="font-extrabold text-xs uppercase">{cab.unidade || "NÚCLEO PM DE CURVELÂNDIA"}</p>
                 </div>
 
                 {/* Informativo & Comandantes Box */}
-                <div className="border border-black text-[10.5px] grid grid-cols-3 divide-x divide-black bg-white" style={{ borderColor: "#000000" }}>
+                <div className="border border-black text-[10.5px] grid grid-cols-3 divide-x divide-black bg-white notranslate" translate="no" style={{ borderColor: "#000000" }}>
                   <div className="p-1.5 col-span-2 space-y-0.5">
                     <p>
                       <strong>INFORMATIVO Nº {calcularInformativoNumero(semanaInfo.dataInicioTerca, cab.informativoNumero)}</strong>
@@ -238,7 +225,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                     <p>Comandante do 17º BPM: <strong>{cab.comandanteBpm}</strong></p>
                     <p>Comandante do NPM: <strong>{cab.comandanteNpm}</strong></p>
                   </div>
-                  <div className="p-1.5 flex flex-col items-center justify-center font-bold font-mono bg-slate-50" style={{ backgroundColor: "#f8fafc" }}>
+                  <div className="p-1.5 flex flex-col items-center justify-center font-bold font-mono bg-slate-50 notranslate" translate="no" style={{ backgroundColor: "#f8fafc" }}>
                     <span className="text-[9.5px] text-slate-600 font-sans font-normal">DATA DE INÍCIO</span>
                     <span className="text-xs">{formatDateBr(semanaInfo.dataInicioTerca)}</span>
                   </div>
@@ -251,7 +238,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
               </div>
 
               {/* Page 1 Footer indicator */}
-              <div className="pt-3 text-right text-[9px] text-slate-500 border-t border-slate-200 mt-4">
+              <div className="pt-3 text-right text-[9px] text-slate-500 border-t border-slate-200 mt-4 notranslate" translate="no">
                 Página 1 de 2 - Escala Semanal de Serviço PMMT
               </div>
             </div>
@@ -260,8 +247,9 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                 PAGE 2 SHEET: DIAS 5 A 7 (SÁBADO A SEGUNDA) + DETERMINAÇÕES, AFASTAMENTOS & ASSINATURA
                ========================================================================= */}
             <div
-              className="pdf-page-sheet bg-white text-black p-6 sm:p-8 w-full shadow-2xl border border-slate-300 flex flex-col justify-between"
+              className="pdf-page-sheet bg-white text-black p-6 sm:p-8 w-full shadow-2xl border border-slate-300 flex flex-col justify-between notranslate"
               data-pdf-page="2"
+              translate="no"
               style={{
                 backgroundColor: "#ffffff",
                 color: "#000000",
@@ -270,11 +258,9 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
             >
               <div className="space-y-3">
                 {/* PAGE 2 HEADER DE CONTINUAÇÃO */}
-                <div className="text-center space-y-0.5 pb-2 border-b-2 border-black" style={{ borderColor: "#000000" }}>
-                  <h2 className="font-bold text-[11px] uppercase">{cab.governo || "GOVERNO DO ESTADO DE MATO GROSSO"}</h2>
-                  <h3 className="font-bold text-[10px] uppercase">{cab.secretaria || "SECRETARIA DE ESTADO DE SEGURANÇA PÚBLICA / POLÍCIA MILITAR"}</h3>
-                  <div className="border border-black bg-slate-100 py-0.5 px-2 font-bold text-[11px] uppercase mt-1 tracking-wide" style={{ borderColor: "#000000", backgroundColor: "#f1f5f9" }}>
-                    CONTINUAÇÃO DA ESCALA DE SERVIÇO DA SEMANA OPERACIONAL
+                <div className="text-center space-y-0.5 pb-1 notranslate" translate="no">
+                  <div className="border border-black bg-slate-100 py-1 px-2 font-bold text-[11px] uppercase tracking-wide" style={{ borderColor: "#000000", backgroundColor: "#f1f5f9" }}>
+                    {cab.unidade || "NÚCLEO PM DE CURVELÂNDIA"} — CONTINUAÇÃO DA ESCALA DE SERVIÇO
                   </div>
                 </div>
 
@@ -284,7 +270,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                 </div>
 
                 {/* DETERMINAÇÕES LIST */}
-                <div className="space-y-1">
+                <div className="space-y-1 notranslate" translate="no">
                   <h4
                     className="font-bold text-[11px] uppercase text-center py-0.5 border border-black"
                     style={{ backgroundColor: "#f1f5f9", borderColor: "#000000" }}
@@ -299,7 +285,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                 </div>
 
                 {/* FÉRIAS E LICENÇAS TABLE */}
-                <div className="space-y-1">
+                <div className="space-y-1 notranslate" translate="no">
                   <h4
                     className="font-bold text-[11px] uppercase text-center py-0.5 border border-black"
                     style={{ backgroundColor: "#f1f5f9", borderColor: "#000000" }}
@@ -307,7 +293,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                     FÉRIAS, LICENÇA PRÊMIO, LTS E OUTROS AFASTAMENTOS
                   </h4>
 
-                  <table className="w-full text-left border-collapse border border-black text-[10.5px]" style={{ borderColor: "#000000" }}>
+                  <table className="w-full text-left border-collapse border border-black text-[10.5px] notranslate" translate="no" style={{ borderColor: "#000000" }}>
                     <thead>
                       <tr
                         className="font-bold uppercase text-center border-b border-black"
@@ -332,14 +318,15 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                           return (
                             <tr
                               key={af.id}
-                              className="border-b last:border-b-0 border-black text-center font-semibold"
+                              className="border-b last:border-b-0 border-black text-center font-semibold notranslate"
+                              translate="no"
                               style={{ borderColor: "#000000" }}
                             >
-                              <td className="p-1 text-left uppercase border-r border-black" style={{ borderColor: "#000000" }}>
+                              <td className="p-1 text-left uppercase border-r border-black notranslate" style={{ borderColor: "#000000" }} translate="no">
                                 {m ? `${m.graduacao} ${m.nomeGuerra}` : "N/A"}
                               </td>
-                              <td className="p-1 font-mono border-r border-black" style={{ borderColor: "#000000" }}>
-                                {m?.rgPmmt || "---"}
+                              <td className="p-1 font-mono border-r border-black notranslate" style={{ borderColor: "#000000" }} translate="no">
+                                {m ? formatRgPmmt(m.rgPmmt) : "---"}
                               </td>
                               <td className="p-1 border-r border-black" style={{ borderColor: "#000000" }}>
                                 {formatDateBr(af.dataInicio)} À {formatDateBr(af.dataFim)}
@@ -354,7 +341,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                 </div>
 
                 {/* OBSERVAÇÃO SECTION */}
-                <div className="border border-black p-2 text-[10px] leading-relaxed bg-slate-50" style={{ borderColor: "#000000", backgroundColor: "#f8fafc" }}>
+                <div className="border border-black p-2 text-[10px] leading-relaxed bg-slate-50 notranslate" translate="no" style={{ borderColor: "#000000", backgroundColor: "#f8fafc" }}>
                   <p className="font-bold uppercase mb-0.5">OBSERVAÇÃO / PERMUTAS REGISTRADAS:</p>
                   {permutasNaSemana.length > 0 ? (
                     permutasNaSemana.map((perm) => (
@@ -372,12 +359,12 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                 </div>
 
                 {/* DIGITAL SIGNATURE BOX */}
-                <div className="text-center pt-4 space-y-0.5">
+                <div className="text-center pt-4 space-y-0.5 notranslate" translate="no">
                   <div className="w-60 mx-auto border-t border-black mb-1" style={{ borderColor: "#000000" }} />
                   <p className="text-[9.5px] text-slate-600 font-mono font-bold uppercase">
                     DOCUMENTO ASSINADO ELETRONICAMENTE
                   </p>
-                  <p className="font-extrabold text-[11px] uppercase">
+                  <p className="font-extrabold text-[11px] uppercase notranslate" translate="no">
                     {cab.comandanteNpm || "WANDERLEY CAMPOS PEREIRA – SUB TEN PM"}
                   </p>
                   <p className="text-[10.5px] font-semibold text-slate-800">Comandante do NPM de Curvelândia</p>
